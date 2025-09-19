@@ -1,0 +1,71 @@
+[Unit]
+Description=NetNAT - NAT & Port Forwarding Manager
+Documentation=https://github.com/yourusername/netnat
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+
+# Working directory
+WorkingDirectory=/opt/netnat
+
+# Main executable
+ExecStart=/usr/local/bin/netnat
+
+# Restart policy
+Restart=always
+RestartSec=5
+StartLimitInterval=60s
+StartLimitBurst=3
+
+# Security settings
+NoNewPrivileges=true
+
+# Required capabilities for network management
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_MODULE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_MODULE
+
+# Additional security restrictions
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=false
+ProtectKernelModules=false
+ProtectKernelLogs=true
+ProtectControlGroups=true
+
+# File system access
+ReadWritePaths=/etc/netnat /var/log/netnat /run/netnat
+
+# Network access (required for NAT functionality)
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX
+
+# System call filtering
+SystemCallFilter=@system-service
+SystemCallFilter=~@debug @mount @cpu-emulation @obsolete @privileged @reboot @swap @raw-io
+
+# Environment
+Environment=NETNAT_CONFIG_PATH=/etc/netnat/config.yml
+Environment=NETNAT_LOG_LEVEL=info
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=netnat
+
+# Process limits
+LimitNOFILE=8192
+LimitNPROC=4096
+
+# Timeout settings
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+# Kill settings
+KillMode=mixed
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

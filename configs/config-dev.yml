@@ -1,0 +1,39 @@
+# Development configuration for NetNAT
+# Uses local directories for testing without root privileges
+
+server:
+  listen: "127.0.0.1:8080"
+  username: "admin"
+  password: "admin123"
+  csrf_key: "32-char-key-for-development-only"
+
+network:
+  public_interface: "auto"  # Auto-detect via default route
+  bridge_interface: "vmbr1"
+  enable_ipv4_forward: true
+  enable_nat: true
+
+storage:
+  rules_file: "./data/rules.json"
+  backup_dir: "./data/backups"
+
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention_days: 30
+  max_backups: 10
+
+discovery:
+  qemu_agent_timeout: 5
+  lxc_timeout: 5
+  arp_timeout: 5
+  cache_duration: 300  # 5 minutes
+
+security:
+  rate_limit_requests: 100
+  rate_limit_window: 60  # 1 minute
+  max_request_size: 1048576  # 1MB
+
+logging:
+  level: "info"
+  format: "text"

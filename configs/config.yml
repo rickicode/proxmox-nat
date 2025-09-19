@@ -1,0 +1,56 @@
+# NetNAT Configuration File
+# NAT & Port Forwarding Manager for Proxmox
+
+server:
+  # Server listening address (default: localhost only for security)
+  listen_addr: "127.0.0.1:9090"
+  
+  # Basic authentication credentials
+  # IMPORTANT: Change these default credentials!
+  username: "netnat"
+  password: "changeme"
+
+network:
+  # Public interface detection
+  # "auto" = auto-detect via default route
+  # or specify interface name like "eth0", "ens3", etc.
+  public_interface: "auto"
+  
+  # Internal bridge where VMs/CTs are connected
+  internal_bridge: "vmbr1"
+  
+  # Port range configuration for port forwarding
+  port_range:
+    min: 1          # Minimum port (1-65535)
+    max: 65535      # Maximum port (1-65535)
+    exclude:        # Ports to avoid (system/service ports)
+      - 22          # SSH
+      - 8006        # Proxmox Web UI
+      - 8007        # Proxmox VNC/SPICE
+      - 9090        # NetNAT Web UI (this application)
+
+storage:
+  # Rules storage file (JSON format)
+  rules_file: "/etc/netnat/rules.json"
+  
+  # Backup configuration
+  backup_enabled: true
+  backup_dir: "/etc/netnat/backups"
+  backup_retention: 30    # Keep last 30 backups
+  auto_backup: true       # Backup before rule changes
+  daily_backup: true      # Daily backup at 02:00
+
+security:
+  # CSRF protection for web interface
+  csrf_enabled: true
+  
+  # Rate limiting (requests per minute per IP)
+  rate_limit: 60
+
+# Example VM/CT IP mappings (optional, for manual override)
+# The system will auto-discover IPs via qemu-agent, lxc, and ARP
+# but you can manually specify IPs here if needed
+#vm_mappings:
+#  100: "192.168.1.100"  # VM ID 100 -> IP
+#  101: "192.168.1.101"  # VM ID 101 -> IP
+#  200: "192.168.1.200"  # CT ID 200 -> IP
