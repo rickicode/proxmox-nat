@@ -3,6 +3,9 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"proxmox-nat/internal/backup"
@@ -609,7 +612,62 @@ func (a *API) restoreBackup(c *gin.Context) {
 		return
 	}
 
-	result, err := a.backup.RestoreBackup(req.BackupPath, req.Preview)
+	// Convert timestamp to actual backup file path
+	// Frontend sends timestamp, we need to find the matching backup file
+	backups, err := a.backup.ListBackups()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to list backups: %v", err),
+		})
+		return
+	}
+
+	var backupPath string
+	targetTimestamp := req.BackupPath
+
+	// Search for backup file by scanning actual files in backup directory
+	files, err := os.ReadDir(a.config.Storage.BackupDir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to read backup directory: %v", err),
+		})
+		return
+	}
+
+	// Try to match by timestamp in filename
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".json") {
+			continue
+		}
+
+		// Check if any backup metadata matches the requested timestamp
+		for _, backup := range backups {
+			if backup.Timestamp.Format(time.RFC3339Nano) == targetTimestamp {
+				// Found matching timestamp, now find the actual file
+				// The filename pattern is: backup_YYYYMMDD_HHMMSS_*_*.json
+				timestampPart := backup.Timestamp.Format("20060102_150405")
+				if strings.Contains(file.Name(), timestampPart) {
+					backupPath = filepath.Join(a.config.Storage.BackupDir, file.Name())
+					break
+				}
+			}
+		}
+		if backupPath != "" {
+			break
+		}
+	}
+
+	if backupPath == "" {
+		c.JSON(http.StatusNotFound, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Backup file not found for timestamp: %s", targetTimestamp),
+		})
+		return
+	}
+
+	result, err := a.backup.RestoreBackup(backupPath, req.Preview)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
@@ -671,10 +729,62 @@ func (a *API) importBackup(c *gin.Context) {
 func (a *API) exportBackup(c *gin.Context) {
 	id := c.Param("id")
 
-	// For simplicity, we'll assume ID is the backup filename
-	backupPath := fmt.Sprintf("%s/%s", a.config.Storage.BackupDir, id)
+	// Convert timestamp to actual backup file path
+	backups, err := a.backup.ListBackups()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to list backups: %v", err),
+		})
+		return
+	}
 
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", id))
+	var backupPath string
+	var filename string
+	targetTimestamp := id
+
+	// Search for backup file by scanning actual files in backup directory
+	files, err := os.ReadDir(a.config.Storage.BackupDir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to read backup directory: %v", err),
+		})
+		return
+	}
+
+	// Try to match by timestamp in filename
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".json") {
+			continue
+		}
+
+		// Check if any backup metadata matches the requested timestamp
+		for _, backup := range backups {
+			if backup.Timestamp.Format(time.RFC3339Nano) == targetTimestamp {
+				// Found matching timestamp, now find the actual file
+				timestampPart := backup.Timestamp.Format("20060102_150405")
+				if strings.Contains(file.Name(), timestampPart) {
+					filename = file.Name()
+					backupPath = filepath.Join(a.config.Storage.BackupDir, filename)
+					break
+				}
+			}
+		}
+		if backupPath != "" {
+			break
+		}
+	}
+
+	if backupPath == "" {
+		c.JSON(http.StatusNotFound, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Backup file not found for timestamp: %s", targetTimestamp),
+		})
+		return
+	}
+
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
 	c.Header("Content-Type", "application/json")
 	c.File(backupPath)
 }

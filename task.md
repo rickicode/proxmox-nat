@@ -1,45 +1,45 @@
 # Task.md – NAT & Port Forwarding Web UI
 
 ## 🔧 Setup Lingkungan
-- [ ] Buat project Go (module init, dependencies minimal).
-- [ ] Siapkan struktur folder (cmd, internal, web/static, configs, etc).
-- [ ] Buat file config default `/etc/netnat/config.yml`.
-- [ ] Implementasi systemd unit dengan `CAP_NET_ADMIN`.
+- [x] Buat project Go (module init, dependencies minimal).
+- [x] Siapkan struktur folder (cmd, internal, web/static, configs, etc).
+- [x] Buat file config default `/etc/netnat/config.yml`.
+- [x] Implementasi systemd unit dengan `CAP_NET_ADMIN`.
 
 ## 🌐 Backend (Go)
-- [ ] Implementasi config loader (YAML).
-- [ ] Implementasi penyimpanan rules (rules.json).
-- [ ] Fungsi enable IPv4 forwarding (sysctl).
-- [ ] Fungsi apply NAT masquerade.
-- [ ] Fungsi CRUD rules DNAT.
-- [ ] Fungsi persist rules (nftables prefer, iptables fallback).
-- [ ] Fungsi detect public interface (default route).
-- [ ] Fungsi detect VM (qm, pct, arp, qga fallback).
-- [ ] API endpoints (status, config, NAT, rules, VMs, dry-run, rollback).
+- [x] Implementasi config loader (YAML).
+- [x] Implementasi penyimpanan rules (rules.json).
+- [x] Fungsi enable IPv4 forwarding (sysctl).
+- [x] Fungsi apply NAT masquerade.
+- [x] Fungsi CRUD rules DNAT.
+- [x] Fungsi persist rules (nftables prefer, iptables fallback).
+- [x] Fungsi detect public interface (default route).
+- [x] Fungsi detect VM (qm, pct, arp, qga fallback).
+- [x] API endpoints (status, config, NAT, rules, VMs, dry-run, rollback).
 
 ## 🖥️ Frontend (Bootstrap + JS)
-- [ ] Layout dasar dengan Bootstrap (Navbar, Card, Table, Modal).
-- [ ] Halaman Dashboard NAT (status, toggle NAT/hairpin, tombol apply).
-- [ ] Tabel Rules DNAT (list, add, edit, delete, toggle).
-- [ ] Modal Add/Edit Rule dengan validasi (port, IP, proto).
-- [ ] Tabel VM/CT dengan tombol *Forward Port* (prefill IP jika ada).
-- [ ] Alert/Toast untuk notifikasi sukses/gagal.
-- [ ] Drawer/Modal untuk Dry-run diff.
+- [x] Layout dasar dengan Bootstrap (Navbar, Card, Table, Modal).
+- [x] Halaman Dashboard NAT (status, toggle NAT/hairpin, tombol apply).
+- [x] Tabel Rules DNAT (list, add, edit, delete, toggle).
+- [x] Modal Add/Edit Rule dengan validasi (port, IP, proto).
+- [x] Tabel VM/CT dengan tombol *Forward Port* (prefill IP jika ada).
+- [x] Alert/Toast untuk notifikasi sukses/gagal.
+- [x] Drawer/Modal untuk Dry-run diff.
 
 ## 🔒 Security
-- [ ] Tambahkan Basic Auth login.
-- [ ] Tambahkan CSRF token untuk request mutasi.
-- [ ] Batasi rate limit API.
-- [ ] Default listen di 127.0.0.1:9090.
+- [x] Tambahkan Basic Auth login.
+- [x] Tambahkan CSRF token untuk request mutasi.
+- [x] Batasi rate limit API.
+- [x] Default listen di 127.0.0.1:9090.
 
 ## 🧪 Testing & Acceptance
-- [ ] Pastikan service start → NAT & ip_forward aktif.
-- [ ] VM di `vmbr1` bisa akses internet.
-- [ ] Tambah rule DNAT → port forwarding langsung aktif.
-- [ ] Reboot host → rules tetap ada.
-- [ ] Validasi port/proto duplikat dicegah.
-- [ ] Dry-run menampilkan diff.
-- [ ] Hybrid IP discovery: tampilkan IP auto (agent/ARP) atau manual input.
+- [x] Pastikan service start → NAT & ip_forward aktif.
+- [x] VM di `vmbr1` bisa akses internet.
+- [x] Tambah rule DNAT → port forwarding langsung aktif.
+- [x] Reboot host → rules tetap ada.
+- [x] Validasi port/proto duplikat dicegah.
+- [x] Dry-run menampilkan diff.
+- [x] Hybrid IP discovery: tampilkan IP auto (agent/ARP) atau manual input.
 
 ---
 

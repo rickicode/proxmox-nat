@@ -187,15 +187,10 @@ func (a *API) getCSRFToken(c *gin.Context) {
 		return
 	}
 
-	// Store token with timestamp
-	// Note: In production, associate with user session
-	// For now, we'll store globally which is less secure but functional
-	mutex := sync.RWMutex{}
-	tokens := make(map[string]time.Time)
-
-	mutex.Lock()
-	tokens[token] = time.Now()
-	mutex.Unlock()
+	// Store token with timestamp in global map
+	csrfMutex.Lock()
+	csrfTokens[token] = time.Now()
+	csrfMutex.Unlock()
 
 	c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,

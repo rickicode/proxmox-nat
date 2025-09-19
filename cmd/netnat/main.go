@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -22,11 +23,55 @@ const (
 	AppVersion = "1.0.0"
 )
 
+var (
+	Version = AppVersion // Can be overridden at build time
+)
+
+func showUsage() {
+	fmt.Printf("%s v%s - NAT & Port Forwarding Manager\n", AppName, Version)
+	fmt.Println()
+	fmt.Println("USAGE:")
+	fmt.Printf("  %s [options]\n", os.Args[0])
+	fmt.Println()
+	fmt.Println("OPTIONS:")
+	fmt.Println("  -config string    Configuration file path (default: \"./configs/config.yml\")")
+	fmt.Println("  -version          Show version information")
+	fmt.Println("  -help             Show this help message")
+	fmt.Println()
+	fmt.Println("EXAMPLES:")
+	fmt.Printf("  %s                           # Start with default config\n", os.Args[0])
+	fmt.Printf("  %s -config /etc/netnat.yml   # Start with custom config\n", os.Args[0])
+	fmt.Println()
+	fmt.Println("WEB INTERFACE:")
+	fmt.Println("  Open http://localhost:9090 in your browser")
+	fmt.Println("  Default credentials: netnat / changeme")
+	fmt.Println()
+}
+
 func main() {
-	fmt.Printf("%s v%s - NAT & Port Forwarding Manager\n", AppName, AppVersion)
+	var (
+		configPath   = flag.String("config", "./configs/config.yml", "Configuration file path")
+		showVersion  = flag.Bool("version", false, "Show version information")
+		showHelp     = flag.Bool("help", false, "Show help message")
+	)
+	
+	flag.Usage = showUsage
+	flag.Parse()
+
+	if *showHelp {
+		showUsage()
+		return
+	}
+
+	if *showVersion {
+		fmt.Printf("%s v%s\n", AppName, Version)
+		return
+	}
+
+	fmt.Printf("%s v%s - NAT & Port Forwarding Manager\n", AppName, Version)
 
 	// Load configuration
-	cfg, err := config.Load()
+	cfg, err := config.LoadFromFile(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}

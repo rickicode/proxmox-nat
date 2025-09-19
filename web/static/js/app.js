@@ -15,6 +15,7 @@ class NetNATApp {
         this.loadRules();
         this.loadVMs();
         this.loadBackups();
+        this.updateDashboard();
         
         // Auto-refresh every 30 seconds
         this.refreshInterval = setInterval(() => {
@@ -32,6 +33,7 @@ class NetNATApp {
         // Rules
         document.getElementById('add-rule-btn').addEventListener('click', () => this.showRuleModal());
         document.getElementById('saveRule').addEventListener('click', () => this.saveRule());
+        document.getElementById('refresh-rules-btn').addEventListener('click', () => this.loadRules());
 
         // VMs
         document.getElementById('refresh-vms-btn').addEventListener('click', () => this.refreshVMs());
@@ -42,16 +44,33 @@ class NetNATApp {
         // Quick Forward
         document.getElementById('createQuickForward').addEventListener('click', () => this.createQuickForward());
 
-        // Tab switching
-        document.querySelectorAll('[data-bs-toggle="tab"]').forEach(tab => {
-            tab.addEventListener('shown.bs.tab', (e) => {
-                const target = e.target.getAttribute('href').substring(1);
-                this.onTabSwitch(target);
-            });
-        });
+        // Remove this section since we're using onclick handlers now
     }
 
-    onTabSwitch(tabName) {
+    switchToTab(tabName) {
+        // Hide all tab panes
+        document.querySelectorAll('.tab-pane').forEach(pane => {
+            pane.classList.remove('show', 'active');
+        });
+        
+        // Remove active class from all nav links
+        document.querySelectorAll('.nav-link').forEach(link => {
+            link.classList.remove('active');
+        });
+        
+        // Show target tab pane
+        const targetPane = document.getElementById(tabName);
+        if (targetPane) {
+            targetPane.classList.add('show', 'active');
+        }
+        
+        // Add active class to clicked nav link
+        const activeLink = document.querySelector(`[href="#${tabName}"]`);
+        if (activeLink) {
+            activeLink.classList.add('active');
+        }
+        
+        // Load data for specific tabs
         switch (tabName) {
             case 'rules':
                 this.loadRules();
@@ -62,15 +81,20 @@ class NetNATApp {
             case 'backup':
                 this.loadBackups();
                 break;
+            case 'dashboard':
+                this.updateDashboard();
+                break;
         }
     }
 
     // CSRF Token Management
     async getCSRFToken() {
         try {
-            const response = await this.makeRequest('/api/csrf-token');
-            if (response.success) {
-                this.csrfToken = response.data.token;
+            const response = await fetch('/api/csrf-token');
+            const data = await response.json();
+            if (data.success) {
+                this.csrfToken = data.data.token;
+                console.log('CSRF token obtained:', this.csrfToken ? 'yes' : 'no');
             }
         } catch (error) {
             console.error('Failed to get CSRF token:', error);
@@ -152,6 +176,9 @@ class NetNATApp {
             systemStatus.className = 'badge bg-warning';
             systemStatus.innerHTML = '<i class="bi bi-circle-fill"></i> Partial';
         }
+        
+        // Update dashboard summary
+        this.updateDashboard();
     }
 
     // NAT Control
@@ -185,6 +212,7 @@ class NetNATApp {
 
     // Rules Management
     async loadRules() {
+        this.showLoading('rules');
         try {
             const response = await this.makeRequest('/api/rules');
             if (response.success) {
@@ -192,12 +220,25 @@ class NetNATApp {
             }
         } catch (error) {
             console.error('Failed to load rules:', error);
+            this.updateRulesTable([]);
+        } finally {
+            this.hideLoading('rules');
         }
     }
 
     updateRulesTable(rules) {
         const tbody = document.querySelector('#rules-table tbody');
         tbody.innerHTML = '';
+
+        if (!rules || !Array.isArray(rules)) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No rules available</td></tr>';
+            return;
+        }
+
+        if (rules.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No port forwarding rules found</td></tr>';
+            return;
+        }
 
         rules.forEach(rule => {
             const row = document.createElement('tr');
@@ -228,6 +269,9 @@ class NetNATApp {
             `;
             tbody.appendChild(row);
         });
+        
+        // Update dashboard summary
+        this.updateDashboard();
     }
 
     showRuleModal(rule = null) {
@@ -269,6 +313,9 @@ class NetNATApp {
             form.reportValidity();
             return;
         }
+
+        // Refresh CSRF token before making the request
+        await this.getCSRFToken();
 
         const rule = {
             name: document.getElementById('ruleName').value,
@@ -331,6 +378,7 @@ class NetNATApp {
 
     // VMs Management
     async loadVMs() {
+        this.showLoading('vms');
         try {
             const response = await this.makeRequest('/api/vms');
             if (response.success) {
@@ -338,12 +386,25 @@ class NetNATApp {
             }
         } catch (error) {
             console.error('Failed to load VMs:', error);
+            this.updateVMsTable([]);
+        } finally {
+            this.hideLoading('vms');
         }
     }
 
     updateVMsTable(vms) {
         const tbody = document.querySelector('#vms-table tbody');
         tbody.innerHTML = '';
+
+        if (!vms || !Array.isArray(vms)) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No VMs/CTs available</td></tr>';
+            return;
+        }
+
+        if (vms.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No VMs/CTs found</td></tr>';
+            return;
+        }
 
         vms.forEach(vm => {
             const row = document.createElement('tr');
@@ -372,6 +433,9 @@ class NetNATApp {
             `;
             tbody.appendChild(row);
         });
+        
+        // Update dashboard summary
+        this.updateDashboard();
     }
 
     async refreshVMs() {
@@ -429,6 +493,7 @@ class NetNATApp {
 
     // Backup Management
     async loadBackups() {
+        this.showLoading('backups');
         try {
             const response = await this.makeRequest('/api/backup/list');
             if (response.success) {
@@ -436,12 +501,25 @@ class NetNATApp {
             }
         } catch (error) {
             console.error('Failed to load backups:', error);
+            this.updateBackupsTable([]);
+        } finally {
+            this.hideLoading('backups');
         }
     }
 
     updateBackupsTable(backups) {
         const tbody = document.querySelector('#backups-table tbody');
         tbody.innerHTML = '';
+
+        if (!backups || !Array.isArray(backups)) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No backups available</td></tr>';
+            return;
+        }
+
+        if (backups.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No backups found</td></tr>';
+            return;
+        }
 
         backups.forEach(backup => {
             const row = document.createElement('tr');
@@ -489,6 +567,75 @@ class NetNATApp {
         }
     }
 
+    async downloadBackup(timestamp) {
+        try {
+            window.open(`/api/backup/export/${timestamp}`, '_blank');
+        } catch (error) {
+            console.error('Failed to download backup:', error);
+            this.showAlert('Failed to download backup', 'danger');
+        }
+    }
+
+    async previewRestore(timestamp) {
+        try {
+            const response = await this.makeRequest('/api/backup/restore', {
+                method: 'POST',
+                body: JSON.stringify({
+                    backup_path: `${timestamp}`,
+                    preview: true
+                }),
+            });
+
+            if (response.success) {
+                const preview = response.data;
+                let message = `Restore Preview:\n\n`;
+                message += `Rules to be restored: ${preview.rules_count || 0}\n`;
+                message += `Current rules will be replaced: ${preview.current_rules_count || 0}\n\n`;
+                
+                if (preview.rules && preview.rules.length > 0) {
+                    message += `Rules that will be added:\n`;
+                    preview.rules.slice(0, 5).forEach(rule => {
+                        message += `- ${rule.name}: ${rule.external_port}/${rule.protocol} → ${rule.internal_ip}:${rule.internal_port}\n`;
+                    });
+                    if (preview.rules.length > 5) {
+                        message += `... and ${preview.rules.length - 5} more rules\n`;
+                    }
+                } else {
+                    message += `No rules in this backup.\n`;
+                }
+                
+                alert(message);
+            }
+        } catch (error) {
+            console.error('Failed to preview restore:', error);
+        }
+    }
+
+    async restoreBackup(timestamp) {
+        if (!confirm('Are you sure you want to restore this backup? This will replace all current rules and cannot be undone.')) {
+            return;
+        }
+
+        try {
+            const response = await this.makeRequest('/api/backup/restore', {
+                method: 'POST',
+                body: JSON.stringify({
+                    backup_path: `${timestamp}`,
+                    preview: false
+                }),
+            });
+
+            if (response.success) {
+                this.showAlert('Backup restored successfully', 'success');
+                this.loadRules();
+                this.loadSystemStatus();
+                this.loadBackups();
+            }
+        } catch (error) {
+            console.error('Failed to restore backup:', error);
+        }
+    }
+
     // Utility Functions
     formatBytes(bytes) {
         if (bytes === 0) return '0 Bytes';
@@ -515,6 +662,204 @@ class NetNATApp {
                 bootstrap.Alert.getOrCreateInstance(alert).close();
             }
         }, 5000);
+    }
+    
+    // Loading Animation
+    showLoading(section) {
+        const loadingRow = document.getElementById(`${section}-loading`);
+        if (loadingRow) {
+            loadingRow.style.display = '';
+        }
+    }
+    
+    hideLoading(section) {
+        const loadingRow = document.getElementById(`${section}-loading`);
+        if (loadingRow) {
+            loadingRow.style.display = 'none';
+        }
+    }
+    
+    // Dashboard Summary Updates
+    updateDashboard() {
+        this.updateVMSummary();
+        this.updateRecentRules();
+        this.updateVMDiscoverySummary();
+    }
+    
+    updateVMSummary() {
+        // This will be called after VM data is loaded
+        const vmsTable = document.querySelector('#vms-table tbody');
+        if (!vmsTable) return;
+        
+        const vmRows = vmsTable.querySelectorAll('tr');
+        let totalVMs = 0;
+        let runningVMs = 0;
+        let vmsWithIP = 0;
+        
+        vmRows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 5 && !row.textContent.includes('No VMs/CTs')) {
+                totalVMs++;
+                
+                // Check if running
+                const statusCell = cells[4];
+                if (statusCell && statusCell.textContent.toLowerCase().includes('running')) {
+                    runningVMs++;
+                }
+                
+                // Check if has IP
+                const ipCell = cells[3];
+                if (ipCell && ipCell.textContent.trim() !== '-' && ipCell.textContent.trim() !== '') {
+                    vmsWithIP++;
+                }
+            }
+        });
+        
+        // Update summary numbers
+        document.getElementById('total-vms').textContent = totalVMs;
+        document.getElementById('running-vms').textContent = runningVMs;
+        document.getElementById('vms-with-ip').textContent = vmsWithIP;
+        
+        // Update recent VMs list (show first 3)
+        const recentVMsContainer = document.getElementById('recent-vms');
+        recentVMsContainer.innerHTML = '';
+        
+        let count = 0;
+        vmRows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 4 && !row.textContent.includes('No VMs/CTs') && count < 3) {
+                const vmId = cells[0].textContent;
+                const vmName = cells[1].textContent || 'Unnamed';
+                const vmType = cells[2].textContent;
+                const vmIP = cells[3].textContent.trim();
+                
+                const vmItem = document.createElement('div');
+                vmItem.className = 'small border-bottom pb-1 mb-1';
+                vmItem.innerHTML = `
+                    <div class="d-flex justify-content-between">
+                        <span><strong>${vmId}</strong> ${vmName.substring(0, 15)}${vmName.length > 15 ? '...' : ''}</span>
+                        <span class="badge badge-sm ${vmType.toLowerCase().includes('qemu') ? 'bg-primary' : 'bg-info'}">${vmType}</span>
+                    </div>
+                    <div class="text-muted"><code>${vmIP !== '-' ? vmIP : 'No IP'}</code></div>
+                `;
+                recentVMsContainer.appendChild(vmItem);
+                count++;
+            }
+        });
+        
+        if (count === 0) {
+            recentVMsContainer.innerHTML = '<small class="text-muted">No VMs/CTs found</small>';
+        }
+    }
+    
+    updateRecentRules() {
+        const rulesTable = document.querySelector('#rules-table tbody');
+        if (!rulesTable) return;
+        
+        const recentRulesContainer = document.getElementById('recent-rules');
+        recentRulesContainer.innerHTML = '';
+        
+        const ruleRows = rulesTable.querySelectorAll('tr');
+        let count = 0;
+        
+        ruleRows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 6 && !row.textContent.includes('No port forwarding') && count < 5) {
+                const ruleName = cells[0].textContent;
+                const externalPort = cells[1].textContent;
+                const internalIP = cells[2].textContent;
+                const internalPort = cells[3].textContent;
+                const protocol = cells[4].textContent;
+                const enabled = cells[5].querySelector('.badge').textContent.toLowerCase().includes('enabled');
+                
+                const ruleItem = document.createElement('div');
+                ruleItem.className = 'small border-bottom pb-1 mb-1';
+                ruleItem.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span><strong>${ruleName.substring(0, 20)}${ruleName.length > 20 ? '...' : ''}</strong></span>
+                        <span class="badge badge-sm ${enabled ? 'bg-success' : 'bg-secondary'}">${enabled ? 'ON' : 'OFF'}</span>
+                    </div>
+                    <div class="text-muted">
+                        <code>${externalPort}/${protocol.toLowerCase()}</code> →
+                        <code>${internalIP}:${internalPort}</code>
+                    </div>
+                `;
+                recentRulesContainer.appendChild(ruleItem);
+                count++;
+            }
+        });
+        
+        if (count === 0) {
+            recentRulesContainer.innerHTML = '<small class="text-muted">No port forwarding rules</small>';
+        }
+    }
+    
+    updateVMDiscoverySummary() {
+        const vmsTable = document.querySelector('#vms-table tbody');
+        const discoveryContainer = document.getElementById('vm-discovery-summary');
+        
+        if (!vmsTable || !discoveryContainer) return;
+        
+        const vmRows = vmsTable.querySelectorAll('tr');
+        
+        let qemuAgent = 0;
+        let lxcConfig = 0;
+        let arpTable = 0;
+        let manual = 0;
+        let totalVMs = 0;
+        
+        vmRows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 6 && !row.textContent.includes('No VMs/CTs') && !row.textContent.includes('Loading')) {
+                totalVMs++;
+                const sourceText = cells[5].textContent.trim().toLowerCase();
+                
+                // More specific matching for discovery sources
+                if (sourceText.includes('qemu') || sourceText.includes('agent')) {
+                    qemuAgent++;
+                } else if (sourceText.includes('lxc') || sourceText.includes('container')) {
+                    lxcConfig++;
+                } else if (sourceText.includes('arp') || sourceText.includes('network')) {
+                    arpTable++;
+                } else if (sourceText.includes('manual') || sourceText.includes('config')) {
+                    manual++;
+                } else {
+                    // Default to manual if unknown source
+                    manual++;
+                }
+            }
+        });
+        
+        // Create summary display
+        discoveryContainer.innerHTML = `
+            <div class="row text-center">
+                <div class="col-6 mb-2">
+                    <div class="border rounded p-2 ${qemuAgent > 0 ? 'bg-light' : ''}">
+                        <div class="h6 mb-0 ${qemuAgent > 0 ? 'text-primary' : 'text-muted'}">${qemuAgent}</div>
+                        <small class="text-muted">QEMU Agent</small>
+                    </div>
+                </div>
+                <div class="col-6 mb-2">
+                    <div class="border rounded p-2 ${lxcConfig > 0 ? 'bg-light' : ''}">
+                        <div class="h6 mb-0 ${lxcConfig > 0 ? 'text-info' : 'text-muted'}">${lxcConfig}</div>
+                        <small class="text-muted">LXC Config</small>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="border rounded p-2 ${arpTable > 0 ? 'bg-light' : ''}">
+                        <div class="h6 mb-0 ${arpTable > 0 ? 'text-warning' : 'text-muted'}">${arpTable}</div>
+                        <small class="text-muted">ARP Table</small>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="border rounded p-2 ${manual > 0 ? 'bg-light' : ''}">
+                        <div class="h6 mb-0 ${manual > 0 ? 'text-secondary' : 'text-muted'}">${manual}</div>
+                        <small class="text-muted">Manual</small>
+                    </div>
+                </div>
+            </div>
+            ${totalVMs > 0 ? `<div class="text-center mt-2"><small class="text-muted">Total: ${totalVMs} VMs/CTs discovered</small></div>` : ''}
+        `;
     }
 }
 

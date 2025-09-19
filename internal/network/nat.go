@@ -303,33 +303,54 @@ func (m *Manager) removeDNATRule(rule models.Rule) error {
 
 // addDNATRuleNftables adds DNAT rule using nftables
 func (m *Manager) addDNATRuleNftables(rule models.Rule) error {
-	// Ensure prerouting chain exists
+	// Ensure prerouting and forward chains exist
 	commands := [][]string{
 		{"nft", "add", "chain", "ip", "netnat", "prerouting", "{", "type", "nat", "hook", "prerouting", "priority", "-100", ";", "}"},
+		{"nft", "add", "chain", "ip", "netnat", "forward", "{", "type", "filter", "hook", "forward", "priority", "0", ";", "}"},
 	}
 
 	for _, cmd := range commands {
 		exec.Command(cmd[0], cmd[1:]...).Run() // Ignore errors for existing chains
 	}
 
-	// Add DNAT rule
+	// Add DNAT rule - bind to public interface for proper routing
 	protocol := strings.ToLower(rule.Protocol)
 	if protocol == "both" {
 		// Add both TCP and UDP rules
 		for _, proto := range []string{"tcp", "udp"} {
+			// DNAT rule
 			cmd := exec.Command("nft", "add", "rule", "ip", "netnat", "prerouting",
 				"iifname", m.publicInterface, proto, "dport", fmt.Sprintf("%d", rule.ExternalPort),
 				"dnat", "to", fmt.Sprintf("%s:%d", rule.InternalIP, rule.InternalPort))
 			if err := cmd.Run(); err != nil {
-				return err
+				return fmt.Errorf("failed to add nftables DNAT rule for %s: %w", proto, err)
+			}
+			
+			// FORWARD rule to allow the forwarded traffic
+			cmd = exec.Command("nft", "add", "rule", "ip", "netnat", "forward",
+				"iifname", m.publicInterface, "oifname", m.config.Network.InternalBridge,
+				proto, "dport", fmt.Sprintf("%d", rule.InternalPort),
+				"ip", "daddr", rule.InternalIP, "ct", "state", "new,related,established", "accept")
+			if err := cmd.Run(); err != nil {
+				fmt.Printf("Warning: Failed to add nftables FORWARD rule for %s: %v\n", proto, err)
 			}
 		}
 	} else {
+		// DNAT rule
 		cmd := exec.Command("nft", "add", "rule", "ip", "netnat", "prerouting",
 			"iifname", m.publicInterface, protocol, "dport", fmt.Sprintf("%d", rule.ExternalPort),
 			"dnat", "to", fmt.Sprintf("%s:%d", rule.InternalIP, rule.InternalPort))
 		if err := cmd.Run(); err != nil {
-			return err
+			return fmt.Errorf("failed to add nftables DNAT rule for %s: %w", protocol, err)
+		}
+		
+		// FORWARD rule to allow the forwarded traffic
+		cmd = exec.Command("nft", "add", "rule", "ip", "netnat", "forward",
+			"iifname", m.publicInterface, "oifname", m.config.Network.InternalBridge,
+			protocol, "dport", fmt.Sprintf("%d", rule.InternalPort),
+			"ip", "daddr", rule.InternalIP, "ct", "state", "new,related,established", "accept")
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("Warning: Failed to add nftables FORWARD rule for %s: %v\n", protocol, err)
 		}
 	}
 
@@ -342,19 +363,41 @@ func (m *Manager) addDNATRuleIptables(rule models.Rule) error {
 	if protocol == "both" {
 		// Add both TCP and UDP rules
 		for _, proto := range []string{"tcp", "udp"} {
+			// DNAT rule - bind to public interface
 			cmd := exec.Command("iptables", "-t", "nat", "-A", "PREROUTING",
 				"-i", m.publicInterface, "-p", proto, "--dport", fmt.Sprintf("%d", rule.ExternalPort),
 				"-j", "DNAT", "--to-destination", fmt.Sprintf("%s:%d", rule.InternalIP, rule.InternalPort))
 			if err := cmd.Run(); err != nil {
-				return err
+				return fmt.Errorf("failed to add iptables DNAT rule for %s: %w", proto, err)
+			}
+			
+			// FORWARD rule to allow the forwarded traffic
+			cmd = exec.Command("iptables", "-A", "FORWARD",
+				"-i", m.publicInterface, "-o", m.config.Network.InternalBridge,
+				"-p", proto, "--dport", fmt.Sprintf("%d", rule.InternalPort),
+				"-d", rule.InternalIP, "-m", "conntrack", "--ctstate", "NEW,RELATED,ESTABLISHED",
+				"-j", "ACCEPT")
+			if err := cmd.Run(); err != nil {
+				fmt.Printf("Warning: Failed to add iptables FORWARD rule for %s: %v\n", proto, err)
 			}
 		}
 	} else {
+		// DNAT rule - bind to public interface
 		cmd := exec.Command("iptables", "-t", "nat", "-A", "PREROUTING",
 			"-i", m.publicInterface, "-p", protocol, "--dport", fmt.Sprintf("%d", rule.ExternalPort),
 			"-j", "DNAT", "--to-destination", fmt.Sprintf("%s:%d", rule.InternalIP, rule.InternalPort))
 		if err := cmd.Run(); err != nil {
-			return err
+			return fmt.Errorf("failed to add iptables DNAT rule for %s: %w", protocol, err)
+		}
+		
+		// FORWARD rule to allow the forwarded traffic
+		cmd = exec.Command("iptables", "-A", "FORWARD",
+			"-i", m.publicInterface, "-o", m.config.Network.InternalBridge,
+			"-p", protocol, "--dport", fmt.Sprintf("%d", rule.InternalPort),
+			"-d", rule.InternalIP, "-m", "conntrack", "--ctstate", "NEW,RELATED,ESTABLISHED",
+			"-j", "ACCEPT")
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("Warning: Failed to add iptables FORWARD rule for %s: %v\n", protocol, err)
 		}
 	}
 
@@ -374,13 +417,13 @@ func (m *Manager) removeDNATRuleIptables(rule models.Rule) error {
 	if protocol == "both" {
 		for _, proto := range []string{"tcp", "udp"} {
 			cmd := exec.Command("iptables", "-t", "nat", "-D", "PREROUTING",
-				"-i", m.publicInterface, "-p", proto, "--dport", fmt.Sprintf("%d", rule.ExternalPort),
+				"-p", proto, "--dport", fmt.Sprintf("%d", rule.ExternalPort),
 				"-j", "DNAT", "--to-destination", fmt.Sprintf("%s:%d", rule.InternalIP, rule.InternalPort))
 			cmd.Run() // Ignore errors
 		}
 	} else {
 		cmd := exec.Command("iptables", "-t", "nat", "-D", "PREROUTING",
-			"-i", m.publicInterface, "-p", protocol, "--dport", fmt.Sprintf("%d", rule.ExternalPort),
+			"-p", protocol, "--dport", fmt.Sprintf("%d", rule.ExternalPort),
 			"-j", "DNAT", "--to-destination", fmt.Sprintf("%s:%d", rule.InternalIP, rule.InternalPort))
 		cmd.Run() // Ignore errors
 	}
@@ -390,11 +433,46 @@ func (m *Manager) removeDNATRuleIptables(rule models.Rule) error {
 
 // clearDNATRules clears all DNAT rules
 func (m *Manager) clearDNATRules() error {
-	// Clear nftables DNAT rules
+	// Clear nftables DNAT and FORWARD rules
 	exec.Command("nft", "flush", "chain", "ip", "netnat", "prerouting").Run()
+	exec.Command("nft", "flush", "chain", "ip", "netnat", "forward").Run()
 
-	// Clear iptables DNAT rules
-	exec.Command("iptables", "-t", "nat", "-F", "PREROUTING").Run()
+	// Clear iptables DNAT rules (only netnat-managed rules)
+	// We'll use a more targeted approach to avoid clearing other rules
+	cmd := exec.Command("iptables-save")
+	output, err := cmd.Output()
+	if err == nil {
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			// Look for our DNAT rules and remove them
+			if strings.Contains(line, "-A PREROUTING") && strings.Contains(line, "DNAT") && strings.Contains(line, m.publicInterface) {
+				// Convert -A to -D for deletion
+				deleteLine := strings.Replace(line, "-A PREROUTING", "-D PREROUTING", 1)
+				parts := strings.Fields(deleteLine)
+				if len(parts) > 2 {
+					exec.Command("iptables", append([]string{"-t", "nat"}, parts[1:]...)...).Run()
+				}
+			}
+		}
+	}
+
+	// Clear FORWARD rules for our port forwards
+	cmd = exec.Command("iptables-save")
+	output, err = cmd.Output()
+	if err == nil {
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			// Look for our FORWARD rules and remove them
+			if strings.Contains(line, "-A FORWARD") && strings.Contains(line, m.publicInterface) && strings.Contains(line, m.config.Network.InternalBridge) {
+				// Convert -A to -D for deletion
+				deleteLine := strings.Replace(line, "-A FORWARD", "-D FORWARD", 1)
+				parts := strings.Fields(deleteLine)
+				if len(parts) > 1 {
+					exec.Command("iptables", parts[1:]...).Run()
+				}
+			}
+		}
+	}
 
 	return nil
 }

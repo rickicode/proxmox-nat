@@ -2,8 +2,8 @@
 # NAT & Port Forwarding Manager for Proxmox
 
 server:
-  # Server listening address (default: localhost only for security)
-  listen_addr: "127.0.0.1:9090"
+  # Server listening address (0.0.0.0 for public access)
+  listen_addr: "0.0.0.0:9090"
   
   # Basic authentication credentials
   # IMPORTANT: Change these default credentials!

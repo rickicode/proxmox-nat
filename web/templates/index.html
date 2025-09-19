@@ -25,22 +25,22 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link active" href="#dashboard" data-bs-toggle="tab">
+                        <a class="nav-link active" href="#dashboard" onclick="app.switchToTab('dashboard')">
                             <i class="bi bi-speedometer2"></i> Dashboard
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#rules" data-bs-toggle="tab">
+                        <a class="nav-link" href="#rules" onclick="app.switchToTab('rules')">
                             <i class="bi bi-list-task"></i> Port Rules
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#vms" data-bs-toggle="tab">
+                        <a class="nav-link" href="#vms" onclick="app.switchToTab('vms')">
                             <i class="bi bi-server"></i> VMs/CTs
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#backup" data-bs-toggle="tab">
+                        <a class="nav-link" href="#backup" onclick="app.switchToTab('backup')">
                             <i class="bi bi-cloud-arrow-down"></i> Backup
                         </a>
                     </li>
@@ -65,41 +65,35 @@
             <div class="tab-pane fade show active" id="dashboard">
                 <div class="row">
                     <!-- System Status Card -->
-                    <div class="col-md-6">
+                    <div class="col-lg-4 col-md-6 mb-3">
                         <div class="card">
                             <div class="card-header">
                                 <h5><i class="bi bi-info-circle"></i> System Status</h5>
                             </div>
                             <div class="card-body">
-                                <div class="row">
-                                    <div class="col-sm-6">
-                                        <div class="d-flex align-items-center mb-2">
-                                            <span class="me-2">NAT Status:</span>
-                                            <span id="nat-status" class="badge bg-secondary">Unknown</span>
-                                        </div>
-                                        <div class="d-flex align-items-center mb-2">
-                                            <span class="me-2">IP Forward:</span>
-                                            <span id="forward-status" class="badge bg-secondary">Unknown</span>
-                                        </div>
-                                    </div>
-                                    <div class="col-sm-6">
-                                        <div class="d-flex align-items-center mb-2">
-                                            <span class="me-2">Active Rules:</span>
-                                            <span id="active-rules" class="badge bg-info">0</span>
-                                        </div>
-                                        <div class="d-flex align-items-center mb-2">
-                                            <span class="me-2">Total Rules:</span>
-                                            <span id="total-rules" class="badge bg-secondary">0</span>
-                                        </div>
-                                    </div>
+                                <div class="d-flex align-items-center mb-2">
+                                    <span class="me-2">NAT Status:</span>
+                                    <span id="nat-status" class="badge bg-secondary">Unknown</span>
+                                </div>
+                                <div class="d-flex align-items-center mb-2">
+                                    <span class="me-2">IP Forward:</span>
+                                    <span id="forward-status" class="badge bg-secondary">Unknown</span>
+                                </div>
+                                <div class="d-flex align-items-center mb-2">
+                                    <span class="me-2">Active Rules:</span>
+                                    <span id="active-rules" class="badge bg-info">0</span>
+                                </div>
+                                <div class="d-flex align-items-center mb-2">
+                                    <span class="me-2">Total Rules:</span>
+                                    <span id="total-rules" class="badge bg-secondary">0</span>
                                 </div>
                                 <hr>
                                 <div class="row">
-                                    <div class="col-sm-6">
+                                    <div class="col-12">
                                         <small class="text-muted">Public Interface:</small><br>
                                         <code id="public-interface">-</code>
                                     </div>
-                                    <div class="col-sm-6">
+                                    <div class="col-12 mt-2">
                                         <small class="text-muted">Internal Bridge:</small><br>
                                         <code id="internal-bridge">-</code>
                                     </div>
@@ -109,7 +103,7 @@
                     </div>
 
                     <!-- Quick Actions Card -->
-                    <div class="col-md-6">
+                    <div class="col-lg-4 col-md-6 mb-3">
                         <div class="card">
                             <div class="card-header">
                                 <h5><i class="bi bi-lightning"></i> Quick Actions</h5>
@@ -117,17 +111,79 @@
                             <div class="card-body">
                                 <div class="d-grid gap-2">
                                     <button class="btn btn-success" id="enable-nat">
-                                        <i class="bi bi-play-circle"></i> Enable NAT
+                                        <i class="bi bi-play-circle text-white"></i> <span class="text-white">Enable NAT</span>
                                     </button>
                                     <button class="btn btn-warning" id="disable-nat">
-                                        <i class="bi bi-stop-circle"></i> Disable NAT
+                                        <i class="bi bi-stop-circle text-white"></i> <span class="text-white">Disable NAT</span>
                                     </button>
                                     <button class="btn btn-info" id="refresh-vms">
-                                        <i class="bi bi-arrow-clockwise"></i> Refresh VM List
+                                        <i class="bi bi-arrow-clockwise text-white"></i> <span class="text-white">Refresh VM List</span>
                                     </button>
                                     <button class="btn btn-primary" id="backup-now">
-                                        <i class="bi bi-cloud-arrow-down"></i> Create Backup
+                                        <i class="bi bi-cloud-arrow-down text-white"></i> <span class="text-white">Create Backup</span>
                                     </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- VM/CT Summary Card -->
+                    <div class="col-lg-4 col-md-12 mb-3">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5><i class="bi bi-server"></i> VMs/CTs</h5>
+                                <button onclick="app.switchToTab('vms')" class="btn btn-sm btn-outline-primary">View All</button>
+                            </div>
+                            <div class="card-body">
+                                <div id="vm-summary">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <span>Total VMs/CTs:</span>
+                                        <span id="total-vms" class="badge bg-info">0</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <span>Running:</span>
+                                        <span id="running-vms" class="badge bg-success">0</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <span>With IP:</span>
+                                        <span id="vms-with-ip" class="badge bg-primary">0</span>
+                                    </div>
+                                </div>
+                                <hr>
+                                <div id="recent-vms">
+                                    <!-- Recent VMs will be populated here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Rules & VMs Row -->
+                <div class="row">
+                    <!-- Recent Port Rules -->
+                    <div class="col-md-6 mb-3">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5><i class="bi bi-list-task"></i> Recent Port Rules</h5>
+                                <button onclick="app.switchToTab('rules')" class="btn btn-sm btn-outline-primary">View All</button>
+                            </div>
+                            <div class="card-body">
+                                <div id="recent-rules">
+                                    <!-- Recent rules will be populated here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- VM Discovery Summary -->
+                    <div class="col-md-6 mb-3">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="bi bi-search"></i> VM Discovery</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="vm-discovery-summary">
+                                    <!-- VM discovery summary will be populated here -->
                                 </div>
                             </div>
                         </div>
@@ -140,9 +196,14 @@
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5><i class="bi bi-list-task"></i> Port Forwarding Rules</h5>
-                        <button class="btn btn-primary" id="add-rule-btn">
-                            <i class="bi bi-plus-circle"></i> Add Rule
-                        </button>
+                        <div>
+                            <button class="btn btn-secondary me-2" id="refresh-rules-btn">
+                                <i class="bi bi-arrow-clockwise text-white"></i> <span class="text-white">Refresh</span>
+                            </button>
+                            <button class="btn btn-primary" id="add-rule-btn">
+                                <i class="bi bi-plus-circle text-white"></i> <span class="text-white">Add Rule</span>
+                            </button>
+                        </div>
                     </div>
                     <div class="card-body">
                         <div class="table-responsive">
@@ -159,6 +220,14 @@
                                     </tr>
                                 </thead>
                                 <tbody>
+                                    <tr id="rules-loading" style="display: none;">
+                                        <td colspan="7" class="text-center">
+                                            <div class="spinner-border spinner-border-sm me-2" role="status">
+                                                <span class="visually-hidden">Loading...</span>
+                                            </div>
+                                            Loading rules...
+                                        </td>
+                                    </tr>
                                     <!-- Rules will be loaded here -->
                                 </tbody>
                             </table>
@@ -173,7 +242,7 @@
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5><i class="bi bi-server"></i> Virtual Machines & Containers</h5>
                         <button class="btn btn-secondary" id="refresh-vms-btn">
-                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                            <i class="bi bi-arrow-clockwise text-white"></i> <span class="text-white">Refresh</span>
                         </button>
                     </div>
                     <div class="card-body">
@@ -191,6 +260,14 @@
                                     </tr>
                                 </thead>
                                 <tbody>
+                                    <tr id="vms-loading" style="display: none;">
+                                        <td colspan="7" class="text-center">
+                                            <div class="spinner-border spinner-border-sm me-2" role="status">
+                                                <span class="visually-hidden">Loading...</span>
+                                            </div>
+                                            Loading VMs/CTs...
+                                        </td>
+                                    </tr>
                                     <!-- VMs will be loaded here -->
                                 </tbody>
                             </table>
@@ -219,6 +296,14 @@
                                             </tr>
                                         </thead>
                                         <tbody>
+                                            <tr id="backups-loading" style="display: none;">
+                                                <td colspan="4" class="text-center">
+                                                    <div class="spinner-border spinner-border-sm me-2" role="status">
+                                                        <span class="visually-hidden">Loading...</span>
+                                                    </div>
+                                                    Loading backups...
+                                                </td>
+                                            </tr>
                                             <!-- Backups will be loaded here -->
                                         </tbody>
                                     </table>
@@ -234,10 +319,10 @@
                             <div class="card-body">
                                 <div class="d-grid gap-2">
                                     <button class="btn btn-primary" id="create-backup-btn">
-                                        <i class="bi bi-plus-circle"></i> Create Backup
+                                        <i class="bi bi-plus-circle text-white"></i> <span class="text-white">Create Backup</span>
                                     </button>
                                     <button class="btn btn-info" id="import-backup-btn">
-                                        <i class="bi bi-upload"></i> Import Backup
+                                        <i class="bi bi-upload text-white"></i> <span class="text-white">Import Backup</span>
                                     </button>
                                     <hr>
                                     <small class="text-muted">
