@@ -124,8 +124,10 @@ jobs:
         
         # Create special symlink for default linux-amd64 binary (for installer)
         cd release
+        rm -f netnat
         cp netnat-linux-amd64 netnat
         sha256sum netnat > netnat.sha256
+        
         
         # Create release archive
         tar -czf netnat-${{ steps.version.outputs.VERSION }}-all-platforms.tar.gz netnat-*
