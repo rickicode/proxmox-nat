@@ -20,7 +20,7 @@ import (
 
 const (
 	AppName    = "NetNAT"
-	AppVersion = "1.1.0"
+	AppVersion = "1.1.1"
 )
 
 var (
