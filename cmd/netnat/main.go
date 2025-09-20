@@ -126,7 +126,9 @@ func main() {
 	}
 
 	// Initialize API server
+	log.Printf("Initializing API server...")
 	apiServer := api.New(cfg, store, netMgr, backupMgr)
+	log.Printf("API server initialized successfully")
 
 	// Setup HTTP server
 	srv := &http.Server{
@@ -140,6 +142,7 @@ func main() {
 	// Start server in goroutine
 	go func() {
 		log.Printf("Server starting on %s", cfg.Server.ListenAddr)
+		log.Printf("API server initialized successfully")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
 		}

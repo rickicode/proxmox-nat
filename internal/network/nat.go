@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"proxmox-nat/internal/models"
 )
@@ -325,7 +326,7 @@ func (m *Manager) addDNATRuleNftables(rule models.Rule) error {
 			if err := cmd.Run(); err != nil {
 				return fmt.Errorf("failed to add nftables DNAT rule for %s: %w", proto, err)
 			}
-			
+
 			// FORWARD rule to allow the forwarded traffic
 			cmd = exec.Command("nft", "add", "rule", "ip", "netnat", "forward",
 				"iifname", m.publicInterface, "oifname", m.config.Network.InternalBridge,
@@ -343,7 +344,7 @@ func (m *Manager) addDNATRuleNftables(rule models.Rule) error {
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("failed to add nftables DNAT rule for %s: %w", protocol, err)
 		}
-		
+
 		// FORWARD rule to allow the forwarded traffic
 		cmd = exec.Command("nft", "add", "rule", "ip", "netnat", "forward",
 			"iifname", m.publicInterface, "oifname", m.config.Network.InternalBridge,
@@ -370,7 +371,7 @@ func (m *Manager) addDNATRuleIptables(rule models.Rule) error {
 			if err := cmd.Run(); err != nil {
 				return fmt.Errorf("failed to add iptables DNAT rule for %s: %w", proto, err)
 			}
-			
+
 			// FORWARD rule to allow the forwarded traffic
 			cmd = exec.Command("iptables", "-A", "FORWARD",
 				"-i", m.publicInterface, "-o", m.config.Network.InternalBridge,
@@ -389,7 +390,7 @@ func (m *Manager) addDNATRuleIptables(rule models.Rule) error {
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("failed to add iptables DNAT rule for %s: %w", protocol, err)
 		}
-		
+
 		// FORWARD rule to allow the forwarded traffic
 		cmd = exec.Command("iptables", "-A", "FORWARD",
 			"-i", m.publicInterface, "-o", m.config.Network.InternalBridge,
@@ -510,4 +511,190 @@ func (m *Manager) RefreshPublicInterface() error {
 	}
 
 	return nil
+}
+
+// GetNetworkTraffic returns real-time network traffic data
+func (m *Manager) GetNetworkTraffic() (*models.NetworkStats, error) {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	stats := &models.NetworkStats{
+		InterfaceStats: []models.NetworkTraffic{},
+		LastUpdated:    time.Now(),
+	}
+
+	// Get traffic data for public interface
+	publicTraffic, err := m.getInterfaceTraffic(m.publicInterface)
+	if err == nil {
+		stats.TotalTraffic = *publicTraffic
+		stats.InterfaceStats = append(stats.InterfaceStats, *publicTraffic)
+	}
+
+	// Get traffic data for internal bridge if different
+	if m.config.Network.InternalBridge != m.publicInterface {
+		bridgeTraffic, err := m.getInterfaceTraffic(m.config.Network.InternalBridge)
+		if err == nil {
+			stats.InterfaceStats = append(stats.InterfaceStats, *bridgeTraffic)
+		}
+	}
+
+	// Get active connections count
+	connections, err := m.getActiveConnections()
+	if err == nil {
+		stats.TotalTraffic.ActiveConnections = connections
+	}
+
+	// Get port usage statistics
+	portUsage, topPorts, err := m.getPortUsage()
+	if err == nil {
+		stats.TotalTraffic.PortUsage = portUsage
+		stats.TotalTraffic.TopPorts = topPorts
+	}
+
+	return stats, nil
+}
+
+// getInterfaceTraffic gets traffic statistics for a specific interface
+func (m *Manager) getInterfaceTraffic(iface string) (*models.NetworkTraffic, error) {
+	// Use /proc/net/dev for traffic statistics
+	data, err := os.ReadFile("/proc/net/dev")
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, iface+":") {
+			fields := strings.Fields(line)
+			if len(fields) >= 17 {
+				// Parse RX and TX bytes
+				rxBytes, _ := parseInt64(fields[1])
+				txBytes, _ := parseInt64(fields[9])
+				rxPackets, _ := parseInt64(fields[2])
+				txPackets, _ := parseInt64(fields[10])
+
+				traffic := &models.NetworkTraffic{
+					Interface: iface,
+					RXBytes:   rxBytes,
+					TXBytes:   txBytes,
+					RXPackets: rxPackets,
+					TXPackets: txPackets,
+					RXRate:    0, // Would need historical data for rate calculation
+					TXRate:    0, // Would need historical data for rate calculation
+					Timestamp: time.Now(),
+				}
+
+				return traffic, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("interface %s not found in /proc/net/dev", iface)
+}
+
+// getActiveConnections gets the count of active network connections
+func (m *Manager) getActiveConnections() (int, error) {
+	// Use netstat or ss to count active connections
+	cmd := exec.Command("ss", "-tuln")
+	output, err := cmd.Output()
+	if err != nil {
+		// Fallback to netstat
+		cmd = exec.Command("netstat", "-tuln")
+		output, err = cmd.Output()
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	lines := strings.Split(string(output), "\n")
+	count := 0
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "tcp") || strings.HasPrefix(line, "udp") {
+			// Count listening ports
+			if strings.Contains(line, "LISTEN") {
+				count++
+			}
+		}
+	}
+
+	return count, nil
+}
+
+// getPortUsage gets port usage statistics
+func (m *Manager) getPortUsage() (map[string]int, []models.PortConnection, error) {
+	portUsage := make(map[string]int)
+	var topPorts []models.PortConnection
+
+	// Use ss to get listening ports
+	cmd := exec.Command("ss", "-tuln")
+	output, err := cmd.Output()
+	if err != nil {
+		// Fallback to netstat
+		cmd = exec.Command("netstat", "-tuln")
+		output, err = cmd.Output()
+		if err != nil {
+			return portUsage, topPorts, err
+		}
+	}
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "tcp") || strings.HasPrefix(line, "udp") {
+			fields := strings.Fields(line)
+			if len(fields) >= 5 {
+				localAddr := fields[4]
+				if strings.Contains(localAddr, ":") {
+					parts := strings.Split(localAddr, ":")
+					if len(parts) == 2 {
+						port := parts[1]
+						protocol := "tcp"
+						if strings.HasPrefix(line, "udp") {
+							protocol = "udp"
+						}
+
+						key := fmt.Sprintf("%s:%s", protocol, port)
+						portUsage[key]++
+
+						// Add to top ports if listening
+						if strings.Contains(line, "LISTEN") {
+							description := "Listening port"
+							if port == "22" {
+								description = "SSH"
+							} else if port == "80" {
+								description = "HTTP"
+							} else if port == "443" {
+								description = "HTTPS"
+							} else if port == "53" {
+								description = "DNS"
+							}
+
+							topPorts = append(topPorts, models.PortConnection{
+								Port:        port,
+								Protocol:    protocol,
+								Connections: 1,
+								Description: description,
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Sort top ports by port number and limit to top 5
+	if len(topPorts) > 5 {
+		topPorts = topPorts[:5]
+	}
+
+	return portUsage, topPorts, nil
+}
+
+// parseInt64 safely parses string to int64
+func parseInt64(s string) (int64, error) {
+	var result int64
+	_, err := fmt.Sscanf(s, "%d", &result)
+	return result, err
 }

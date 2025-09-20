@@ -147,3 +147,35 @@ type OrphanCleanupResult struct {
 	RemovedCount   int    `json:"removed_count"`
 	DryRun         bool   `json:"dry_run"`
 }
+
+// NetworkTraffic represents real-time network traffic data
+type NetworkTraffic struct {
+	Interface         string           `json:"interface"`
+	RXBytes           int64            `json:"rx_bytes"`
+	TXBytes           int64            `json:"tx_bytes"`
+	RXPackets         int64            `json:"rx_packets"`
+	TXPackets         int64            `json:"tx_packets"`
+	RXRate            float64          `json:"rx_rate"` // bytes per second
+	TXRate            float64          `json:"tx_rate"` // bytes per second
+	ActiveConnections int              `json:"active_connections"`
+	PortUsage         map[string]int   `json:"port_usage"` // port -> connection count
+	TopPorts          []PortConnection `json:"top_ports"`  // top 5 ports by connections
+	Timestamp         time.Time        `json:"timestamp"`
+}
+
+// PortConnection represents port usage information
+type PortConnection struct {
+	Port        string `json:"port"`
+	Protocol    string `json:"protocol"`
+	Connections int    `json:"connections"`
+	Description string `json:"description"`
+}
+
+// NetworkStats represents overall network statistics
+type NetworkStats struct {
+	TotalTraffic   NetworkTraffic   `json:"total_traffic"`
+	InterfaceStats []NetworkTraffic `json:"interface_stats"`
+	ActiveRules    int              `json:"active_rules"`
+	TotalRules     int              `json:"total_rules"`
+	LastUpdated    time.Time        `json:"last_updated"`
+}

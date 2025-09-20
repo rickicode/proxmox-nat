@@ -15,12 +15,14 @@ class NetNATApp {
         this.loadRules();
         this.loadVMs();
         this.loadBackups();
+        this.loadNetworkTraffic();
         this.updateDashboard();
         this.initTheme();
-        
+
         // Auto-refresh every 30 seconds
         this.refreshInterval = setInterval(() => {
             this.loadSystemStatus();
+            this.loadNetworkTraffic();
         }, 30000);
     }
 
@@ -41,6 +43,9 @@ class NetNATApp {
 
         // Backup
         document.getElementById('create-backup-btn').addEventListener('click', () => this.createBackup());
+
+        // Network Traffic
+        document.getElementById('refresh-traffic-btn').addEventListener('click', () => this.refreshNetworkTraffic());
 
         // Quick Forward
         document.getElementById('createQuickForward').addEventListener('click', () => this.createQuickForward());
@@ -330,6 +335,8 @@ class NetNATApp {
 
     updateRulesTable(rules) {
         const tbody = document.querySelector('#rules-table tbody');
+        if (!tbody) return;
+
         tbody.innerHTML = '';
 
         if (!rules || !Array.isArray(rules)) {
@@ -496,6 +503,8 @@ class NetNATApp {
 
     updateVMsTable(vms) {
         const tbody = document.querySelector('#vms-table tbody');
+        if (!tbody) return;
+
         tbody.innerHTML = '';
 
         if (!vms || !Array.isArray(vms)) {
@@ -685,6 +694,8 @@ class NetNATApp {
 
     updateBackupsTable(backups) {
         const tbody = document.querySelector('#backups-table tbody');
+        if (!tbody) return;
+
         tbody.innerHTML = '';
 
         if (!backups || !Array.isArray(backups)) {
@@ -860,29 +871,67 @@ class NetNATApp {
         this.updateVMSummary();
         this.updateRecentRules();
         this.updateVMDiscoverySummary();
+        this.updateRecentActivity();
+    }
+
+    updateRecentActivity() {
+        const activityContainer = document.getElementById('recent-activity');
+        if (!activityContainer) return;
+
+        const now = new Date();
+        const timeString = now.toLocaleTimeString();
+
+        // Get current stats with null checks
+        const natStatusEl = document.getElementById('nat-status');
+        const natStatus = natStatusEl ? natStatusEl.textContent : 'Unknown';
+
+        const activeRulesEl = document.getElementById('active-rules');
+        const activeRules = activeRulesEl ? activeRulesEl.textContent : '0';
+
+        const totalVMsEl = document.getElementById('total-vms');
+        const totalVMs = totalVMsEl ? totalVMsEl.textContent : '0';
+
+        activityContainer.innerHTML = `
+            <div class="mb-2">
+                <small class="text-muted d-block">Last Updated</small>
+                <small class="fw-bold">${timeString}</small>
+            </div>
+            <div class="mb-2">
+                <small class="text-muted d-block">System Status</small>
+                <small class="fw-bold text-${natStatus === 'Enabled' ? 'success' : 'warning'}">${natStatus}</small>
+            </div>
+            <div class="mb-2">
+                <small class="text-muted d-block">Active Rules</small>
+                <small class="fw-bold text-info">${activeRules}</small>
+            </div>
+            <div class="mb-0">
+                <small class="text-muted d-block">Total VMs/CTs</small>
+                <small class="fw-bold text-primary">${totalVMs}</small>
+            </div>
+        `;
     }
     
     updateVMSummary() {
         // This will be called after VM data is loaded
         const vmsTable = document.querySelector('#vms-table tbody');
         if (!vmsTable) return;
-        
+
         const vmRows = vmsTable.querySelectorAll('tr');
         let totalVMs = 0;
         let runningVMs = 0;
         let vmsWithIP = 0;
-        
+
         vmRows.forEach(row => {
             const cells = row.querySelectorAll('td');
             if (cells.length >= 5 && !row.textContent.includes('No VMs/CTs')) {
                 totalVMs++;
-                
+
                 // Check if running
                 const statusCell = cells[4];
                 if (statusCell && statusCell.textContent.toLowerCase().includes('running')) {
                     runningVMs++;
                 }
-                
+
                 // Check if has IP
                 const ipCell = cells[3];
                 if (ipCell && ipCell.textContent.trim() !== '-' && ipCell.textContent.trim() !== '') {
@@ -890,16 +939,23 @@ class NetNATApp {
                 }
             }
         });
-        
-        // Update summary numbers
-        document.getElementById('total-vms').textContent = totalVMs;
-        document.getElementById('running-vms').textContent = runningVMs;
-        document.getElementById('vms-with-ip').textContent = vmsWithIP;
-        
+
+        // Update summary numbers with null checks
+        const totalVMsEl = document.getElementById('total-vms');
+        if (totalVMsEl) totalVMsEl.textContent = totalVMs;
+
+        const runningVMsEl = document.getElementById('running-vms');
+        if (runningVMsEl) runningVMsEl.textContent = runningVMs;
+
+        const vmsWithIPEl = document.getElementById('vms-with-ip');
+        if (vmsWithIPEl) vmsWithIPEl.textContent = vmsWithIP;
+
         // Update recent VMs list (show first 3)
         const recentVMsContainer = document.getElementById('recent-vms');
+        if (!recentVMsContainer) return;
+
         recentVMsContainer.innerHTML = '';
-        
+
         let count = 0;
         vmRows.forEach(row => {
             const cells = row.querySelectorAll('td');
@@ -908,33 +964,40 @@ class NetNATApp {
                 const vmName = cells[1].textContent || 'Unnamed';
                 const vmType = cells[2].textContent;
                 const vmIP = cells[3].textContent.trim();
-                
+
                 const vmItem = document.createElement('div');
-                vmItem.className = 'small border-bottom pb-1 mb-1';
+                vmItem.className = 'd-flex align-items-center justify-content-between p-1 mb-1';
                 vmItem.innerHTML = `
-                    <div class="d-flex justify-content-between">
-                        <span><strong>${vmId}</strong> ${vmName.substring(0, 15)}${vmName.length > 15 ? '...' : ''}</span>
-                        <span class="badge badge-sm ${vmType.toLowerCase().includes('qemu') ? 'bg-primary' : 'bg-info'}">${vmType}</span>
+                    <div class="flex-grow-1">
+                        <small class="fw-bold text-dark">${vmId} - ${vmName.substring(0, 15)}${vmName.length > 15 ? '...' : ''}</small>
+                        <small class="text-muted d-block">${vmIP !== '-' ? vmIP : 'No IP'}</small>
                     </div>
-                    <div class="text-muted"><code>${vmIP !== '-' ? vmIP : 'No IP'}</code></div>
+                    <small class="badge ${vmType.toLowerCase().includes('qemu') ? 'bg-primary' : 'bg-info'}">${vmType}</small>
                 `;
                 recentVMsContainer.appendChild(vmItem);
                 count++;
             }
         });
-        
+
         if (count === 0) {
-            recentVMsContainer.innerHTML = '<small class="text-muted">No VMs/CTs found</small>';
+            recentVMsContainer.innerHTML = `
+                <div class="text-center py-2">
+                    <i class="bi bi-server text-muted mb-1"></i>
+                    <small class="text-muted">No VMs/CTs found</small>
+                </div>
+            `;
         }
     }
     
     updateRecentRules() {
         const rulesTable = document.querySelector('#rules-table tbody');
         if (!rulesTable) return;
-        
+
         const recentRulesContainer = document.getElementById('recent-rules');
+        if (!recentRulesContainer) return;
+
         recentRulesContainer.innerHTML = '';
-        
+
         const ruleRows = rulesTable.querySelectorAll('tr');
         let count = 0;
         
@@ -946,27 +1009,34 @@ class NetNATApp {
                 const internalIP = cells[2].textContent;
                 const internalPort = cells[3].textContent;
                 const protocol = cells[4].textContent;
-                const enabled = cells[5].querySelector('.badge').textContent.toLowerCase().includes('enabled');
+                const enabledBadge = cells[5].querySelector('.badge');
+                const enabled = enabledBadge ? enabledBadge.textContent.toLowerCase().includes('enabled') : false;
                 
                 const ruleItem = document.createElement('div');
-                ruleItem.className = 'small border-bottom pb-1 mb-1';
+                ruleItem.className = 'd-flex align-items-center justify-content-between p-1 mb-1';
                 ruleItem.innerHTML = `
-                    <div class="d-flex justify-content-between align-items-center">
-                        <span><strong>${ruleName.substring(0, 20)}${ruleName.length > 20 ? '...' : ''}</strong></span>
-                        <span class="badge badge-sm ${enabled ? 'bg-success' : 'bg-secondary'}">${enabled ? 'ON' : 'OFF'}</span>
+                    <div class="flex-grow-1">
+                        <small class="fw-bold text-dark">${ruleName.substring(0, 20)}${ruleName.length > 20 ? '...' : ''}</small>
+                        <small class="text-muted d-block">
+                            <code class="me-1 small">${externalPort}/${protocol.toLowerCase()}</code>
+                            <i class="bi bi-arrow-right mx-1 small"></i>
+                            <code class="small">${internalIP}:${internalPort}</code>
+                        </small>
                     </div>
-                    <div class="text-muted">
-                        <code>${externalPort}/${protocol.toLowerCase()}</code> →
-                        <code>${internalIP}:${internalPort}</code>
-                    </div>
+                    <small class="badge ${enabled ? 'bg-success' : 'bg-secondary'}">${enabled ? 'Active' : 'Off'}</small>
                 `;
                 recentRulesContainer.appendChild(ruleItem);
                 count++;
             }
         });
-        
+
         if (count === 0) {
-            recentRulesContainer.innerHTML = '<small class="text-muted">No port forwarding rules</small>';
+            recentRulesContainer.innerHTML = `
+                <div class="text-center py-2">
+                    <i class="bi bi-list-task text-muted mb-1"></i>
+                    <small class="text-muted">No port forwarding rules</small>
+                </div>
+            `;
         }
     }
     
@@ -1007,39 +1077,175 @@ class NetNATApp {
         });
         
         // Create summary display
-        discoveryContainer.innerHTML = `
-            <div class="row text-center">
-                <div class="col-6 mb-2">
-                    <div class="border rounded p-2 ${qemuAgent > 0 ? 'bg-light' : ''}">
-                        <div class="h6 mb-0 ${qemuAgent > 0 ? 'text-primary' : 'text-muted'}">${qemuAgent}</div>
-                        <small class="text-muted">QEMU Agent</small>
+        if (totalVMs > 0) {
+            discoveryContainer.innerHTML = `
+                <div class="row g-1 text-center">
+                    <div class="col-6">
+                        <div class="p-2 rounded ${qemuAgent > 0 ? 'bg-primary bg-opacity-10' : 'bg-light'}">
+                            <div class="fw-bold ${qemuAgent > 0 ? 'text-primary' : 'text-muted'}">${qemuAgent}</div>
+                            <small class="${qemuAgent > 0 ? 'text-primary' : 'text-muted'}">QEMU</small>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="p-2 rounded ${lxcConfig > 0 ? 'bg-info bg-opacity-10' : 'bg-light'}">
+                            <div class="fw-bold ${lxcConfig > 0 ? 'text-info' : 'text-muted'}">${lxcConfig}</div>
+                            <small class="${lxcConfig > 0 ? 'text-info' : 'text-muted'}">LXC</small>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="p-2 rounded ${arpTable > 0 ? 'bg-warning bg-opacity-10' : 'bg-light'}">
+                            <div class="fw-bold ${arpTable > 0 ? 'text-warning' : 'text-muted'}">${arpTable}</div>
+                            <small class="${arpTable > 0 ? 'text-warning' : 'text-muted'}">ARP</small>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="p-2 rounded ${manual > 0 ? 'bg-secondary bg-opacity-10' : 'bg-light'}">
+                            <div class="fw-bold ${manual > 0 ? 'text-secondary' : 'text-muted'}">${manual}</div>
+                            <small class="${manual > 0 ? 'text-secondary' : 'text-muted'}">Manual</small>
+                        </div>
                     </div>
                 </div>
-                <div class="col-6 mb-2">
-                    <div class="border rounded p-2 ${lxcConfig > 0 ? 'bg-light' : ''}">
-                        <div class="h6 mb-0 ${lxcConfig > 0 ? 'text-info' : 'text-muted'}">${lxcConfig}</div>
-                        <small class="text-muted">LXC Config</small>
+                <div class="text-center mt-2">
+                    <small class="badge bg-success">${totalVMs} VMs discovered</small>
+                </div>
+            `;
+        } else {
+            discoveryContainer.innerHTML = `
+                <div class="text-center py-2">
+                    <i class="bi bi-search text-muted mb-1"></i>
+                    <small class="text-muted">No VMs discovered</small>
+                </div>
+            `;
+        }
+    }
+
+    // Network Traffic Monitoring
+    async loadNetworkTraffic() {
+        try {
+            const response = await this.makeRequest('/api/network/traffic');
+            if (response.success) {
+                this.updateNetworkTrafficDisplay(response.data);
+            }
+        } catch (error) {
+            console.error('Failed to load network traffic:', error);
+            this.updateNetworkTrafficDisplay(null);
+        }
+    }
+
+    async refreshNetworkTraffic() {
+        const btn = document.getElementById('refresh-traffic-btn');
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
+        btn.disabled = true;
+
+        try {
+            await this.loadNetworkTraffic();
+            this.showAlert('Network traffic data refreshed', 'success', 2000);
+        } catch (error) {
+            this.showAlert('Failed to refresh network data', 'danger');
+        } finally {
+            btn.innerHTML = originalHTML;
+            btn.disabled = false;
+        }
+    }
+
+    updateNetworkTrafficDisplay(data) {
+        const container = document.getElementById('network-traffic');
+        if (!container) return;
+
+        if (!data) {
+            container.innerHTML = `
+                <div class="text-center text-muted py-3">
+                    <i class="bi bi-exclamation-triangle text-danger mb-2"></i>
+                    <small class="text-danger">Unable to load network data</small>
+                    <br><small class="text-muted">Please check your network configuration</small>
+                </div>
+            `;
+            return;
+        }
+
+        const traffic = data.total_traffic || {};
+        const formatBytes = (bytes) => {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        };
+
+        const formatRate = (rate) => {
+            if (rate === 0) return '0 B/s';
+            const k = 1024;
+            const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+            const i = Math.floor(Math.log(rate) / Math.log(k));
+            return parseFloat((rate / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        };
+
+        container.innerHTML = `
+            <!-- Traffic Overview -->
+            <div class="row g-3 mb-3">
+                <div class="col-md-3">
+                    <div class="text-center p-3 bg-primary bg-opacity-10 rounded">
+                        <i class="bi bi-arrow-down-circle text-primary fs-4 mb-2"></i>
+                        <div class="fw-bold text-primary">${formatBytes(traffic.rx_bytes || 0)}</div>
+                        <small class="text-primary">Received</small>
                     </div>
                 </div>
-                <div class="col-6">
-                    <div class="border rounded p-2 ${arpTable > 0 ? 'bg-light' : ''}">
-                        <div class="h6 mb-0 ${arpTable > 0 ? 'text-warning' : 'text-muted'}">${arpTable}</div>
-                        <small class="text-muted">ARP Table</small>
+                <div class="col-md-3">
+                    <div class="text-center p-3 bg-success bg-opacity-10 rounded">
+                        <i class="bi bi-arrow-up-circle text-success fs-4 mb-2"></i>
+                        <div class="fw-bold text-success">${formatBytes(traffic.tx_bytes || 0)}</div>
+                        <small class="text-success">Sent</small>
                     </div>
                 </div>
-                <div class="col-6">
-                    <div class="border rounded p-2 ${manual > 0 ? 'bg-light' : ''}">
-                        <div class="h6 mb-0 ${manual > 0 ? 'text-secondary' : 'text-muted'}">${manual}</div>
-                        <small class="text-muted">Manual</small>
+                <div class="col-md-3">
+                    <div class="text-center p-3 bg-info bg-opacity-10 rounded">
+                        <i class="bi bi-diagram-3 text-info fs-4 mb-2"></i>
+                        <div class="fw-bold text-info">${traffic.active_connections || 0}</div>
+                        <small class="text-info">Connections</small>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="text-center p-3 bg-warning bg-opacity-10 rounded">
+                        <i class="bi bi-router text-warning fs-4 mb-2"></i>
+                        <div class="fw-bold text-warning small">${traffic.interface || 'N/A'}</div>
+                        <small class="text-warning">Interface</small>
                     </div>
                 </div>
             </div>
-            ${totalVMs > 0 ? `<div class="text-center mt-2"><small class="text-muted">Total: ${totalVMs} VMs/CTs discovered</small></div>` : ''}
+
+            <!-- Top Ports -->
+            ${traffic.top_ports && traffic.top_ports.length > 0 ? `
+                <div class="mb-3">
+                    <small class="text-muted fw-bold d-block mb-2"><i class="bi bi-list-ol me-1"></i>TOP LISTENING PORTS</small>
+                    <div class="d-flex flex-wrap gap-2">
+                        ${traffic.top_ports.slice(0, 4).map((port, index) => `
+                            <div class="badge bg-light text-dark border px-2 py-1">
+                                <small class="fw-bold">${index + 1}.</small> ${port.protocol.toUpperCase()} ${port.port}
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            ` : ''}
+
+            <!-- Last Updated -->
+            <div class="text-end pt-2 border-top">
+                <small class="text-muted">
+                    <i class="bi bi-clock me-1"></i>
+                    Last updated: ${data.last_updated ? new Date(data.last_updated).toLocaleTimeString() : 'Never'}
+                </small>
+            </div>
         `;
     }
 }
 
-// Initialize app when DOM is loaded
+// Initialize app immediately and set global reference
+window.app = new NetNATApp();
+
+// Also listen for DOMContentLoaded to ensure everything is ready
 document.addEventListener('DOMContentLoaded', () => {
-    window.app = new NetNATApp();
+    // Ensure app is initialized even if it was already created
+    if (!window.app) {
+        window.app = new NetNATApp();
+    }
 });

@@ -106,6 +106,9 @@ func (a *API) Handler() http.Handler {
 
 		// CSRF token endpoint
 		api.GET("/csrf-token", a.getCSRFToken)
+
+		// Network monitoring
+		api.GET("/network/traffic", a.getNetworkTraffic)
 	}
 
 	return r
@@ -991,5 +994,32 @@ func (a *API) cleanOrphanedRules(c *gin.Context) {
 		Success: true,
 		Message: fmt.Sprintf("Orphaned rules cleanup completed. Removed %d rules", result.RemovedCount),
 		Data:    result,
+	})
+}
+
+// getNetworkTraffic returns real-time network traffic data
+func (a *API) getNetworkTraffic(c *gin.Context) {
+	// Get network traffic data from network manager
+	traffic, err := a.network.GetNetworkTraffic()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to get network traffic: %v", err),
+		})
+		return
+	}
+
+	// Get active rules count
+	total, active, err := a.storage.GetRulesCount()
+	if err == nil {
+		traffic.ActiveRules = active
+		traffic.TotalRules = total
+	}
+
+	traffic.LastUpdated = time.Now()
+
+	c.JSON(http.StatusOK, models.APIResponse{
+		Success: true,
+		Data:    traffic,
 	})
 }

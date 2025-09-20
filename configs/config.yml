@@ -3,7 +3,7 @@
 
 server:
   # Server listening address (0.0.0.0 for public access)
-  listen_addr: "0.0.0.0:8080"
+  listen_addr: "0.0.0.0:9090"
   
   # Basic authentication credentials
   # IMPORTANT: Change these default credentials!

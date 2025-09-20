@@ -60,281 +60,301 @@
         <div class="tab-content">
             <!-- Dashboard Tab -->
             <div class="tab-pane fade show active" id="dashboard">
-                <div class="row">
-                    <!-- System Status Card -->
-                    <div class="col-lg-4 col-md-6 mb-3">
-                        <div class="card">
-                            <div class="card-header">
-                                <h5><i class="bi bi-info-circle"></i> System Status</h5>
-                            </div>
-                            <div class="card-body">
-                                <div class="d-flex align-items-center mb-2">
-                                    <span class="me-2">NAT Status:</span>
-                                    <span id="nat-status" class="badge bg-secondary">Unknown</span>
-                                </div>
-                                <div class="d-flex align-items-center mb-2">
-                                    <span class="me-2">IP Forward:</span>
-                                    <span id="forward-status" class="badge bg-secondary">Unknown</span>
-                                </div>
-                                <div class="d-flex align-items-center mb-2">
-                                    <span class="me-2">Active Rules:</span>
-                                    <span id="active-rules" class="badge bg-info">0</span>
-                                </div>
-                                <div class="d-flex align-items-center mb-2">
-                                    <span class="me-2">Total Rules:</span>
-                                    <span id="total-rules" class="badge bg-secondary">0</span>
-                                </div>
-                                <hr>
-                                <div class="row">
-                                    <div class="col-12">
-                                        <small class="text-muted">Public Interface:</small><br>
-                                        <code id="public-interface">-</code>
+                <!-- Main Dashboard Grid -->
+                <div class="row g-3">
+                    <!-- Left Column - System Status -->
+                    <div class="col-lg-8">
+                        <div class="row g-3">
+                            <!-- System Status Cards -->
+                            <div class="col-md-6">
+                                <div class="bg-white rounded p-3 h-100">
+                                    <div class="d-flex align-items-center mb-3">
+                                        <i class="bi bi-info-circle text-primary me-2"></i>
+                                        <small class="text-muted fw-bold">SYSTEM STATUS</small>
                                     </div>
-                                    <div class="col-12 mt-2">
-                                        <small class="text-muted">Internal Bridge:</small><br>
-                                        <code id="internal-bridge">-</code>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Quick Actions Card -->
-                    <div class="col-lg-4 col-md-6 mb-3">
-                        <div class="card">
-                            <div class="card-header">
-                                <h5><i class="bi bi-lightning"></i> Quick Actions</h5>
-                            </div>
-                            <div class="card-body">
-                                <div class="d-grid gap-2">
-                                    <button class="btn btn-success" id="enable-nat">
-                                        <i class="bi bi-play-circle"></i> Enable NAT
-                                    </button>
-                                    <button class="btn btn-warning" id="disable-nat">
-                                        <i class="bi bi-stop-circle"></i> Disable NAT
-                                    </button>
-                                    <button class="btn btn-info" id="refresh-vms">
-                                        <i class="bi bi-arrow-clockwise"></i> Refresh VM List
-                                    </button>
-                                    <button class="btn btn-primary" id="backup-now">
-                                        <i class="bi bi-cloud-arrow-down"></i> Create Backup
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- VM/CT Summary Card -->
-                    <div class="col-lg-4 col-md-12 mb-3">
-                        <div class="card">
-                            <div class="card-header d-flex justify-content-between align-items-center">
-                                <h5><i class="bi bi-server"></i> VMs/CTs</h5>
-                                <button onclick="app.switchToTab('vms')" class="btn btn-sm btn-outline-primary">View All</button>
-                            </div>
-                            <div class="card-body">
-                                <div id="vm-summary">
-                                    <div class="d-flex justify-content-between align-items-center mb-2">
-                                        <span>Total VMs/CTs:</span>
-                                        <span id="total-vms" class="badge bg-info">0</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between align-items-center mb-2">
-                                        <span>Running:</span>
-                                        <span id="running-vms" class="badge bg-success">0</span>
-                                    </div>
-                                    <div class="d-flex justify-content-between align-items-center mb-2">
-                                        <span>With IP:</span>
-                                        <span id="vms-with-ip" class="badge bg-primary">0</span>
-                                    </div>
-                                </div>
-                                <hr>
-                                <div id="recent-vms">
-                                    <!-- Recent VMs will be populated here -->
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Recent Rules & VMs Row -->
-                <div class="row">
-                    <!-- Recent Port Rules -->
-                    <div class="col-md-6 mb-3">
-                        <div class="card">
-                            <div class="card-header d-flex justify-content-between align-items-center">
-                                <h5><i class="bi bi-list-task"></i> Recent Port Rules</h5>
-                                <button onclick="app.switchToTab('rules')" class="btn btn-sm btn-outline-primary">View All</button>
-                            </div>
-                            <div class="card-body">
-                                <div id="recent-rules">
-                                    <!-- Recent rules will be populated here -->
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- VM Discovery Summary -->
-                    <div class="col-md-6 mb-3">
-                        <div class="card">
-                            <div class="card-header">
-                                <h5><i class="bi bi-search"></i> VM Discovery</h5>
-                            </div>
-                            <div class="card-body">
-                                <div id="vm-discovery-summary">
-                                    <!-- VM discovery summary will be populated here -->
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Rules Tab -->
-            <div class="tab-pane fade" id="rules">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h5><i class="bi bi-list-task"></i> Port Forwarding Rules</h5>
-                        <div>
-                            <button class="btn btn-success me-2" onclick="app.showQuickForwardModal()">
-                                <i class="bi bi-lightning"></i> Quick Forward
-                            </button>
-                            <button class="btn btn-secondary me-2" id="refresh-rules-btn">
-                                <i class="bi bi-arrow-clockwise"></i> Refresh
-                            </button>
-                            <button class="btn btn-primary" id="add-rule-btn">
-                                <i class="bi bi-plus-circle"></i> Add Rule
-                            </button>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div class="table-responsive">
-                            <table class="table table-striped" id="rules-table">
-                                <thead>
-                                    <tr>
-                                        <th>Name</th>
-                                        <th>External Port</th>
-                                        <th>Internal IP</th>
-                                        <th>Internal Port</th>
-                                        <th>Protocol</th>
-                                        <th>Status</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr id="rules-loading" style="display: none;">
-                                        <td colspan="7" class="text-center">
-                                            <div class="spinner-border spinner-border-sm me-2" role="status">
-                                                <span class="visually-hidden">Loading...</span>
+                                    <div class="row g-2">
+                                        <div class="col-6">
+                                            <div class="text-center p-2 bg-light rounded">
+                                                <small class="text-muted d-block">NAT</small>
+                                                <span id="nat-status" class="badge bg-secondary small">Unknown</span>
                                             </div>
-                                            Loading rules...
-                                        </td>
-                                    </tr>
-                                    <!-- Rules will be loaded here -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- VMs Tab -->
-            <div class="tab-pane fade" id="vms">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h5><i class="bi bi-server"></i> Virtual Machines & Containers</h5>
-                        <button class="btn btn-secondary" id="refresh-vms-btn">
-                            <i class="bi bi-arrow-clockwise"></i> Refresh
-                        </button>
-                    </div>
-                    <div class="card-body">
-                        <div class="table-responsive">
-                            <table class="table table-striped" id="vms-table">
-                                <thead>
-                                    <tr>
-                                        <th>ID</th>
-                                        <th>Name</th>
-                                        <th>Type</th>
-                                        <th>IP Address</th>
-                                        <th>Status</th>
-                                        <th>Source</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr id="vms-loading" style="display: none;">
-                                        <td colspan="7" class="text-center">
-                                            <div class="spinner-border spinner-border-sm me-2" role="status">
-                                                <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="text-center p-2 bg-light rounded">
+                                                <small class="text-muted d-block">IP Forward</small>
+                                                <span id="forward-status" class="badge bg-secondary small">Unknown</span>
                                             </div>
-                                            Loading VMs/CTs...
-                                        </td>
-                                    </tr>
-                                    <!-- VMs will be loaded here -->
-                                </tbody>
-                            </table>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="text-center p-2 bg-light rounded">
+                                                <small class="text-muted d-block">Active Rules</small>
+                                                <span id="active-rules" class="badge bg-info small">0</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="text-center p-2 bg-light rounded">
+                                                <small class="text-muted d-block">Total Rules</small>
+                                                <span id="total-rules" class="badge bg-secondary small">0</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Network Interfaces -->
+                            <div class="col-md-6">
+                                <div class="bg-white rounded p-3 h-100">
+                                    <div class="d-flex align-items-center mb-3">
+                                        <i class="bi bi-ethernet text-success me-2"></i>
+                                        <small class="text-muted fw-bold">NETWORK INTERFACES</small>
+                                    </div>
+                                    <div class="row g-2">
+                                        <div class="col-12">
+                                            <div class="p-2 bg-light rounded">
+                                                <small class="text-muted d-block">Public Interface</small>
+                                                <code id="public-interface" class="text-primary small">-</code>
+                                            </div>
+                                        </div>
+                                        <div class="col-12">
+                                            <div class="p-2 bg-light rounded">
+                                                <small class="text-muted d-block">Internal Bridge</small>
+                                                <code id="internal-bridge" class="text-success small">-</code>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- VM Summary -->
+                            <div class="col-12">
+                                <div class="bg-white rounded p-3">
+                                    <div class="d-flex align-items-center mb-3">
+                                        <i class="bi bi-server text-info me-2"></i>
+                                        <small class="text-muted fw-bold">VIRTUAL MACHINES & CONTAINERS</small>
+                                    </div>
+                                    <div class="row text-center g-2">
+                                        <div class="col-4">
+                                            <div class="p-3 bg-light rounded">
+                                                <div class="display-6 fw-bold text-info mb-1" id="total-vms">0</div>
+                                                <small class="text-muted">Total VMs/CTs</small>
+                                            </div>
+                                        </div>
+                                        <div class="col-4">
+                                            <div class="p-3 bg-light rounded">
+                                                <div class="display-6 fw-bold text-success mb-1" id="running-vms">0</div>
+                                                <small class="text-muted">Running</small>
+                                            </div>
+                                        </div>
+                                        <div class="col-4">
+                                            <div class="p-3 bg-light rounded">
+                                                <div class="display-6 fw-bold text-primary mb-1" id="vms-with-ip">0</div>
+                                                <small class="text-muted">With IP</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right Column - Quick Actions & Activity -->
+                    <div class="col-lg-4">
+                        <div class="bg-white rounded p-3 mb-3">
+                            <div class="d-flex align-items-center mb-3">
+                                <i class="bi bi-lightning text-warning me-2"></i>
+                                <small class="text-muted fw-bold">QUICK ACTIONS</small>
+                            </div>
+                            <div class="d-grid gap-2">
+                                <button class="btn btn-success btn-sm" id="enable-nat">
+                                    <i class="bi bi-play-circle me-1"></i>Enable NAT
+                                </button>
+                                <button class="btn btn-warning btn-sm" id="disable-nat">
+                                    <i class="bi bi-stop-circle me-1"></i>Disable NAT
+                                </button>
+                                <button class="btn btn-info btn-sm" id="refresh-vms">
+                                    <i class="bi bi-arrow-clockwise me-1"></i>Refresh VMs
+                                </button>
+                                <button class="btn btn-primary btn-sm" id="backup-now">
+                                    <i class="bi bi-cloud-arrow-down me-1"></i>Create Backup
+                                </button>
+                                <hr class="my-2">
+                                <button onclick="app.switchToTab('vms')" class="btn btn-outline-secondary btn-sm">
+                                    <i class="bi bi-server me-1"></i>Manage VMs
+                                </button>
+                                <button onclick="app.switchToTab('rules')" class="btn btn-outline-secondary btn-sm">
+                                    <i class="bi bi-list-task me-1"></i>Manage Rules
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Recent Activity Summary -->
+                        <div class="bg-white rounded p-3">
+                            <div class="d-flex align-items-center mb-3">
+                                <i class="bi bi-activity text-primary me-2"></i>
+                                <small class="text-muted fw-bold">RECENT ACTIVITY</small>
+                            </div>
+                            <div id="recent-activity" class="small">
+                                <div class="text-center py-2">
+                                    <i class="bi bi-clock text-muted mb-1"></i>
+                                    <div class="text-muted">No recent activity</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Network Traffic Monitor (Full Width Bottom) -->
+                <div class="mt-4 pt-4 border-top">
+                    <div class="bg-white rounded p-4">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <div>
+                                <i class="bi bi-graph-up text-primary me-2"></i>
+                                <span class="fw-bold text-muted">NETWORK TRAFFIC MONITOR</span>
+                            </div>
+                            <button onclick="app.refreshNetworkTraffic()" class="btn btn-outline-primary btn-sm" id="refresh-traffic-btn">
+                                <i class="bi bi-arrow-clockwise me-1"></i>Refresh Data
+                            </button>
+                        </div>
+                        <div id="network-traffic" class="bg-light rounded p-3">
+                            <!-- Network traffic data will be populated here -->
+                            <div class="text-center text-muted py-4">
+                                <div class="spinner-border text-primary me-2" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <small class="text-muted">Loading network traffic data...</small>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Backup Tab -->
-            <div class="tab-pane fade" id="backup">
-                <div class="row">
-                    <div class="col-md-8">
-                        <div class="card">
-                            <div class="card-header">
-                                <h5><i class="bi bi-archive"></i> Backup History</h5>
-                            </div>
-                            <div class="card-body">
-                                <div class="table-responsive">
-                                    <table class="table table-striped" id="backups-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Date</th>
-                                                <th>Rules Count</th>
-                                                <th>Size</th>
-                                                <th>Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <tr id="backups-loading" style="display: none;">
-                                                <td colspan="4" class="text-center">
-                                                    <div class="spinner-border spinner-border-sm me-2" role="status">
-                                                        <span class="visually-hidden">Loading...</span>
-                                                    </div>
-                                                    Loading backups...
-                                                </td>
-                                            </tr>
-                                            <!-- Backups will be loaded here -->
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="card">
-                            <div class="card-header">
-                                <h5><i class="bi bi-tools"></i> Backup Actions</h5>
-                            </div>
-                            <div class="card-body">
-                                <div class="d-grid gap-2">
-                                    <button class="btn btn-primary" id="create-backup-btn">
-                                        <i class="bi bi-plus-circle"></i> Create Backup
-                                    </button>
-                                    <button class="btn btn-info" id="import-backup-btn">
-                                        <i class="bi bi-upload"></i> Import Backup
-                                    </button>
-                                    <hr>
-                                    <small class="text-muted">
-                                        <i class="bi bi-info-circle"></i>
-                                        Backups are created automatically before any rule changes.
-                                    </small>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+             <!-- Rules Tab -->
+             <div class="tab-pane fade" id="rules">
+                 <div class="d-flex justify-content-between align-items-center mb-3">
+                     <small class="text-muted"><i class="bi bi-list-task me-1"></i>Port Forwarding Rules</small>
+                     <div>
+                         <button class="btn btn-success btn-sm me-1" onclick="app.showQuickForwardModal()">
+                             <i class="bi bi-lightning me-1"></i>Quick Forward
+                         </button>
+                         <button class="btn btn-secondary btn-sm me-1" id="refresh-rules-btn">
+                             <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                         </button>
+                         <button class="btn btn-primary btn-sm" id="add-rule-btn">
+                             <i class="bi bi-plus-circle me-1"></i>Add Rule
+                         </button>
+                     </div>
+                 </div>
+                 <div class="table-responsive">
+                     <table class="table table-sm" id="rules-table">
+                         <thead class="table-light">
+                             <tr>
+                                 <th>Name</th>
+                                 <th>External Port</th>
+                                 <th>Internal IP</th>
+                                 <th>Internal Port</th>
+                                 <th>Protocol</th>
+                                 <th>Status</th>
+                                 <th>Actions</th>
+                             </tr>
+                         </thead>
+                         <tbody>
+                             <tr id="rules-loading" style="display: none;">
+                                 <td colspan="7" class="text-center py-3">
+                                     <div class="spinner-border spinner-border-sm me-2" role="status">
+                                         <span class="visually-hidden">Loading...</span>
+                                     </div>
+                                     <small>Loading rules...</small>
+                                 </td>
+                             </tr>
+                             <!-- Rules will be loaded here -->
+                         </tbody>
+                     </table>
+                 </div>
+             </div>
+
+             <!-- VMs Tab -->
+             <div class="tab-pane fade" id="vms">
+                 <div class="d-flex justify-content-between align-items-center mb-3">
+                     <small class="text-muted"><i class="bi bi-server me-1"></i>Virtual Machines & Containers</small>
+                     <button class="btn btn-secondary btn-sm" id="refresh-vms-btn">
+                         <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                     </button>
+                 </div>
+                 <div class="table-responsive">
+                     <table class="table table-sm" id="vms-table">
+                         <thead class="table-light">
+                             <tr>
+                                 <th>ID</th>
+                                 <th>Name</th>
+                                 <th>Type</th>
+                                 <th>IP Address</th>
+                                 <th>Status</th>
+                                 <th>Source</th>
+                                 <th>Actions</th>
+                             </tr>
+                         </thead>
+                         <tbody>
+                             <tr id="vms-loading" style="display: none;">
+                                 <td colspan="7" class="text-center py-3">
+                                     <div class="spinner-border spinner-border-sm me-2" role="status">
+                                         <span class="visually-hidden">Loading...</span>
+                                     </div>
+                                     <small>Loading VMs/CTs...</small>
+                                 </td>
+                             </tr>
+                             <!-- VMs will be loaded here -->
+                         </tbody>
+                     </table>
+                 </div>
+             </div>
+
+             <!-- Backup Tab -->
+             <div class="tab-pane fade" id="backup">
+                 <div class="row g-3">
+                     <div class="col-md-8">
+                         <small class="text-muted d-block mb-2"><i class="bi bi-archive me-1"></i>Backup History</small>
+                         <div class="table-responsive">
+                             <table class="table table-sm" id="backups-table">
+                                 <thead class="table-light">
+                                     <tr>
+                                         <th>Date</th>
+                                         <th>Rules Count</th>
+                                         <th>Size</th>
+                                         <th>Actions</th>
+                                     </tr>
+                                 </thead>
+                                 <tbody>
+                                     <tr id="backups-loading" style="display: none;">
+                                         <td colspan="4" class="text-center py-3">
+                                             <div class="spinner-border spinner-border-sm me-2" role="status">
+                                                 <span class="visually-hidden">Loading...</span>
+                                             </div>
+                                             <small>Loading backups...</small>
+                                         </td>
+                                     </tr>
+                                     <!-- Backups will be loaded here -->
+                                 </tbody>
+                             </table>
+                         </div>
+                     </div>
+                     <div class="col-md-4">
+                         <small class="text-muted d-block mb-2"><i class="bi bi-tools me-1"></i>Backup Actions</small>
+                         <div class="d-flex flex-column gap-2">
+                             <button class="btn btn-primary btn-sm" id="create-backup-btn">
+                                 <i class="bi bi-plus-circle me-1"></i>Create Backup
+                             </button>
+                             <button class="btn btn-info btn-sm" id="import-backup-btn">
+                                 <i class="bi bi-upload me-1"></i>Import Backup
+                             </button>
+                             <hr class="my-2">
+                             <small class="text-muted">
+                                 <i class="bi bi-info-circle me-1"></i>
+                                 Backups are created automatically before any rule changes.
+                             </small>
+                         </div>
+                     </div>
+                 </div>
+             </div>
         </div>
     </div>
 
@@ -342,55 +362,55 @@
     
     <!-- Add/Edit Rule Modal -->
     <div class="modal fade" id="ruleModal" tabindex="-1">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-lg">
             <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="ruleModalTitle">Add Port Forwarding Rule</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <div class="modal-header py-2">
+                    <small class="modal-title text-muted" id="ruleModalTitle">Add Port Forwarding Rule</small>
+                    <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="modal-body">
+                <div class="modal-body py-3">
                     <form id="ruleForm">
-                        <div class="mb-3">
-                            <label for="ruleName" class="form-label">Rule Name</label>
-                            <input type="text" class="form-control" id="ruleName" required>
+                        <div class="mb-2">
+                            <label for="ruleName" class="form-label small">Rule Name</label>
+                            <input type="text" class="form-control form-control-sm" id="ruleName" required>
                         </div>
                         <div class="row">
                             <div class="col-md-6">
-                                <label for="externalPort" class="form-label">External Port</label>
-                                <input type="number" class="form-control" id="externalPort" min="1" max="65535" required>
+                                <label for="externalPort" class="form-label small">External Port</label>
+                                <input type="number" class="form-control form-control-sm" id="externalPort" min="1" max="65535" required>
                             </div>
                             <div class="col-md-6">
-                                <label for="protocol" class="form-label">Protocol</label>
-                                <select class="form-select" id="protocol" required>
+                                <label for="protocol" class="form-label small">Protocol</label>
+                                <select class="form-select form-select-sm" id="protocol" required>
                                     <option value="tcp">TCP</option>
                                     <option value="udp">UDP</option>
                                     <option value="both">Both</option>
                                 </select>
                             </div>
                         </div>
-                        <div class="row mt-3">
+                        <div class="row mt-2">
                             <div class="col-md-6">
-                                <label for="internalIP" class="form-label">Internal IP</label>
-                                <input type="text" class="form-control" id="internalIP" required>
+                                <label for="internalIP" class="form-label small">Internal IP</label>
+                                <input type="text" class="form-control form-control-sm" id="internalIP" required>
                             </div>
                             <div class="col-md-6">
-                                <label for="internalPort" class="form-label">Internal Port</label>
-                                <input type="number" class="form-control" id="internalPort" min="1" max="65535" required>
+                                <label for="internalPort" class="form-label small">Internal Port</label>
+                                <input type="number" class="form-control form-control-sm" id="internalPort" min="1" max="65535" required>
                             </div>
                         </div>
-                        <div class="mt-3">
+                        <div class="mt-2">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" id="ruleEnabled" checked>
-                                <label class="form-check-label" for="ruleEnabled">
+                                <label class="form-check-label small" for="ruleEnabled">
                                     Enable rule immediately
                                 </label>
                             </div>
                         </div>
                     </form>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="saveRule">Save Rule</button>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="saveRule">Save Rule</button>
                 </div>
             </div>
         </div>
@@ -400,32 +420,32 @@
     <div class="modal fade" id="quickForwardModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Quick Port Forward</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <div class="modal-header py-2">
+                    <small class="modal-title text-muted">Quick Port Forward</small>
+                    <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="modal-body">
+                <div class="modal-body py-3">
                     <form id="quickForwardForm">
-                        <div class="mb-3">
-                            <label for="vmSelect" class="form-label">Target VM/CT</label>
-                            <select class="form-select" id="vmSelect" required>
+                        <div class="mb-2">
+                            <label for="vmSelect" class="form-label small">Target VM/CT</label>
+                            <select class="form-select form-select-sm" id="vmSelect" required>
                                 <option value="">Select a VM/CT...</option>
                             </select>
                             <input type="hidden" id="targetIP">
                         </div>
                         <div class="row">
                             <div class="col-md-6">
-                                <label for="quickExternalPort" class="form-label">External Port</label>
-                                <input type="number" class="form-control" id="quickExternalPort" min="1" max="65535" required>
+                                <label for="quickExternalPort" class="form-label small">External Port</label>
+                                <input type="number" class="form-control form-control-sm" id="quickExternalPort" min="1" max="65535" required>
                             </div>
                             <div class="col-md-6">
-                                <label for="quickInternalPort" class="form-label">Internal Port</label>
-                                <input type="number" class="form-control" id="quickInternalPort" min="1" max="65535" required>
+                                <label for="quickInternalPort" class="form-label small">Internal Port</label>
+                                <input type="number" class="form-control form-control-sm" id="quickInternalPort" min="1" max="65535" required>
                             </div>
                         </div>
-                        <div class="mt-3">
-                            <label for="quickProtocol" class="form-label">Protocol</label>
-                            <select class="form-select" id="quickProtocol" required>
+                        <div class="mt-2">
+                            <label for="quickProtocol" class="form-label small">Protocol</label>
+                            <select class="form-select form-select-sm" id="quickProtocol" required>
                                 <option value="tcp">TCP</option>
                                 <option value="udp">UDP</option>
                                 <option value="both">Both</option>
@@ -433,9 +453,9 @@
                         </div>
                     </form>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="createQuickForward">Create Rule</button>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="createQuickForward">Create Rule</button>
                 </div>
             </div>
         </div>
@@ -456,5 +476,25 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <!-- Custom JS -->
     <script src="/static/js/app.js"></script>
+
+    <!-- Footer -->
+    <footer class="mt-5 py-3 border-top bg-light">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-6">
+                    <small class="text-muted">
+                        <i class="bi bi-shield-check me-1"></i>
+                        NetNAT v1.0.0 - NAT & Port Forwarding Manager
+                    </small>
+                </div>
+                <div class="col-md-6 text-end">
+                    <small class="text-muted">
+                        <i class="bi bi-cpu me-1"></i>
+                        Proxmox VE Integration
+                    </small>
+                </div>
+            </div>
+        </div>
+    </footer>
 </body>
 </html>
