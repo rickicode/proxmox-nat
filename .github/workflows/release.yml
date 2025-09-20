@@ -160,17 +160,7 @@ jobs:
             ' CHANGELOG.md)
           fi
           
-          # Add installation instructions
-          CHANGELOG_CONTENT="${CHANGELOG_CONTENT}
-
-### 📦 Quick Installation
-\`\`\`bash
-curl -sSL https://raw.githubusercontent.com/rickicode/proxmox-nat/main/install.sh | sudo bash
-\`\`\`
-
-### 🔐 Default Login
-- Username: \`admin\`
-- Password: \`netnat123\` (⚠️ Change after installation!)"
+          # Use changelog content as-is without additional info
           
           echo "CHANGELOG_CONTENT<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
