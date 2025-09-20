@@ -126,9 +126,27 @@ create_user() {
     fi
 }
 
+# Get installed version
+get_installed_version() {
+    if [[ -f "$INSTALL_DIR/netnat" ]]; then
+        "$INSTALL_DIR/netnat" --version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown"
+    else
+        echo "not_installed"
+    fi
+}
+
+# Get latest version from GitHub
+get_latest_version() {
+    curl -s "https://api.github.com/repos/rickicode/proxmox-nat/releases/latest" | jq -r '.tag_name' 2>/dev/null || echo "unknown"
+}
+
 # Download and install binary
 install_binary() {
     print_status "Installing NetNAT binary..."
+    
+    local force_update="${1:-false}"
+    local installed_version=""
+    local latest_version=""
     
     # Check if binary exists in build directory (for local install)
     if [[ -f "build/netnat" ]]; then
@@ -138,17 +156,74 @@ install_binary() {
         print_status "Using binary from current directory"
         cp "netnat" "$INSTALL_DIR/netnat"
     else
-        print_status "Downloading latest release from GitHub..."
+        print_status "Checking for latest release from GitHub..."
+        
+        # Get current and latest versions
+        installed_version=$(get_installed_version)
+        latest_version=$(get_latest_version)
+        
+        print_status "Installed version: $installed_version"
+        print_status "Latest version: $latest_version"
+        
+        # Check if update is needed
+        if [[ "$installed_version" != "not_installed" && "$installed_version" == "$latest_version" && "$force_update" != "true" ]]; then
+            print_success "NetNAT is already up to date ($installed_version)"
+            return 0
+        fi
+        
+        if [[ "$installed_version" != "not_installed" && "$installed_version" != "$latest_version" ]]; then
+            print_status "Update available: $installed_version → $latest_version"
+        fi
+        
+        # Detect architecture
+        local arch=$(uname -m)
+        local binary_name="netnat"
+        case $arch in
+            x86_64)  binary_name="netnat-linux-amd64" ;;
+            aarch64) binary_name="netnat-linux-arm64" ;;
+            armv7l)  binary_name="netnat-linux-armv7" ;;
+            *)       binary_name="netnat" ;;
+        esac
         
         # Try to get latest release binary
-        LATEST_URL=$(curl -s "https://api.github.com/repos/rickicode/proxmox-nat/releases/latest" | jq -r '.assets[] | select(.name=="netnat") | .browser_download_url' 2>/dev/null)
+        LATEST_URL=$(curl -s "https://api.github.com/repos/rickicode/proxmox-nat/releases/latest" | jq -r ".assets[] | select(.name==\"$binary_name\") | .browser_download_url" 2>/dev/null)
+        
+        # Fallback to generic binary name
+        if [[ -z "$LATEST_URL" || "$LATEST_URL" == "null" ]]; then
+            print_warning "Architecture-specific binary not found, trying generic binary..."
+            LATEST_URL=$(curl -s "https://api.github.com/repos/rickicode/proxmox-nat/releases/latest" | jq -r '.assets[] | select(.name=="netnat") | .browser_download_url' 2>/dev/null)
+        fi
         
         if [[ -n "$LATEST_URL" && "$LATEST_URL" != "null" ]]; then
-            print_status "Downloading pre-built binary..."
-            if wget -O "$INSTALL_DIR/netnat" "$LATEST_URL"; then
-                print_success "Downloaded pre-built binary"
+            print_status "Downloading pre-built binary from: $LATEST_URL"
+            
+            # Backup existing binary if it exists
+            if [[ -f "$INSTALL_DIR/netnat" ]]; then
+                cp "$INSTALL_DIR/netnat" "$INSTALL_DIR/netnat.backup"
+                print_status "Backed up existing binary"
+            fi
+            
+            # Download new binary
+            if wget -O "$INSTALL_DIR/netnat.new" "$LATEST_URL"; then
+                # Verify the download
+                if [[ -f "$INSTALL_DIR/netnat.new" && -s "$INSTALL_DIR/netnat.new" ]]; then
+                    mv "$INSTALL_DIR/netnat.new" "$INSTALL_DIR/netnat"
+                    rm -f "$INSTALL_DIR/netnat.backup"
+                    print_success "Downloaded and installed latest binary ($latest_version)"
+                else
+                    print_error "Downloaded file is empty or corrupt"
+                    if [[ -f "$INSTALL_DIR/netnat.backup" ]]; then
+                        mv "$INSTALL_DIR/netnat.backup" "$INSTALL_DIR/netnat"
+                        print_status "Restored backup binary"
+                    fi
+                    exit 1
+                fi
             else
                 print_error "Failed to download pre-built binary from GitHub"
+                if [[ -f "$INSTALL_DIR/netnat.backup" ]]; then
+                    mv "$INSTALL_DIR/netnat.backup" "$INSTALL_DIR/netnat"
+                    print_status "Restored backup binary"
+                fi
                 print_error "Please ensure you have internet connectivity"
                 exit 1
             fi
@@ -180,34 +255,33 @@ install_config() {
         print_warning "Config file not found, creating default configuration"
         cat > "$CONFIG_DIR/config.yml" << 'EOF'
 server:
-  host: "0.0.0.0"
-  port: 8080
-  auth:
-    username: "admin"
-    password: "netnat123"
+  listen_addr: "0.0.0.0:8080"
+  username: "admin"
+  password: "netnat123"
 
 network:
   public_interface: "auto"
-  bridge_interface: "vmbr0"
-  enable_ipv4_forward: true
-  enable_nat: true
+  internal_bridge: "vmbr1"
+  port_range:
+    min: 1
+    max: 65535
+    exclude:
+      - 22
+      - 8006
+      - 8007
+      - 8080
 
 storage:
   rules_file: "/var/lib/netnat/rules.json"
+  backup_enabled: true
   backup_dir: "/var/lib/netnat/backups"
-
-logging:
-  level: "info"
-  file: "/var/log/netnat/netnat.log"
-  max_size: 10
-  max_backups: 5
-  max_age: 30
+  backup_retention: 30
+  auto_backup: true
+  daily_backup: true
 
 security:
-  csrf_key: "netnat-csrf-secret-key-change-this-in-production"
-  rate_limit:
-    requests_per_minute: 60
-    burst: 10
+  csrf_enabled: true
+  rate_limit: 60
 EOF
         chown root:root "$CONFIG_DIR/config.yml"
         chmod 644 "$CONFIG_DIR/config.yml"
@@ -369,6 +443,61 @@ uninstall() {
     print_success "NetNAT uninstalled successfully"
 }
 
+# Update function
+update() {
+    print_status "Updating NetNAT to latest version..."
+    
+    # Check if service is running
+    local was_running=false
+    if systemctl is-active --quiet "$SERVICE_NAME"; then
+        was_running=true
+        print_status "Stopping service for update..."
+        systemctl stop "$SERVICE_NAME"
+    fi
+    
+    # Force update binary
+    install_binary "true"
+    
+    # Restart service if it was running
+    if [[ "$was_running" == "true" ]]; then
+        print_status "Restarting service..."
+        systemctl start "$SERVICE_NAME"
+        
+        # Check if service started successfully
+        sleep 2
+        if systemctl is-active --quiet "$SERVICE_NAME"; then
+            print_success "NetNAT updated and service restarted successfully"
+        else
+            print_error "Service failed to start after update"
+            print_error "Check logs with: journalctl -u $SERVICE_NAME"
+            exit 1
+        fi
+    else
+        print_success "NetNAT updated successfully"
+    fi
+}
+
+# Check version function
+check_version() {
+    local installed_version=$(get_installed_version)
+    local latest_version=$(get_latest_version)
+    
+    echo "📦 NetNAT Version Information:"
+    echo "   Installed: $installed_version"
+    echo "   Latest:    $latest_version"
+    echo ""
+    
+    if [[ "$installed_version" == "not_installed" ]]; then
+        echo "❌ NetNAT is not installed"
+        echo "   Run: $0 install"
+    elif [[ "$installed_version" == "$latest_version" ]]; then
+        echo "✅ NetNAT is up to date"
+    else
+        echo "⚠️  Update available!"
+        echo "   Run: $0 update"
+    fi
+}
+
 # Main installation function
 main() {
     echo "================================================"
@@ -389,17 +518,31 @@ main() {
             configure_firewall
             start_service
             ;;
+        "update")
+            check_root
+            update
+            ;;
         "uninstall")
             check_root
             uninstall
             ;;
+        "version")
+            check_version
+            ;;
         "help"|"--help"|"-h")
-            echo "Usage: $0 [install|uninstall|help]"
+            echo "Usage: $0 [install|update|uninstall|version|help]"
             echo ""
             echo "Commands:"
             echo "  install     Install NetNAT service (default)"
+            echo "  update      Update NetNAT to latest version"
             echo "  uninstall   Remove NetNAT service"
+            echo "  version     Check version information"
             echo "  help        Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  curl -sSL https://raw.githubusercontent.com/rickicode/proxmox-nat/main/install.sh | sudo bash"
+            echo "  curl -sSL https://raw.githubusercontent.com/rickicode/proxmox-nat/main/install.sh | sudo bash -s update"
+            echo "  curl -sSL https://raw.githubusercontent.com/rickicode/proxmox-nat/main/install.sh | sudo bash -s version"
             echo ""
             ;;
         *)

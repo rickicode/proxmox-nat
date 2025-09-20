@@ -84,9 +84,9 @@ func SaveToFile(cfg *models.Config, path string) error {
 func DefaultConfig() *models.Config {
 	return &models.Config{
 		Server: models.ServerConfig{
-			ListenAddr: "127.0.0.1:9090",
-			Username:   "netnat",
-			Password:   "changeme",
+			ListenAddr: "0.0.0.0:8080",
+			Username:   "admin",
+			Password:   "netnat123",
 		},
 		Network: models.NetworkConfig{
 			PublicInterface: "auto",
@@ -94,7 +94,7 @@ func DefaultConfig() *models.Config {
 			PortRange: models.PortRange{
 				Min:     1,
 				Max:     65535,
-				Exclude: []int{22, 8006, 8007, 9090},
+				Exclude: []int{22, 8006, 8007, 8080},
 			},
 		},
 		Storage: models.StorageConfig{

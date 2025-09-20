@@ -20,7 +20,7 @@ import (
 
 const (
 	AppName    = "NetNAT"
-	AppVersion = "1.0.0"
+	AppVersion = "1.1.0"
 )
 
 var (
@@ -50,11 +50,11 @@ func showUsage() {
 
 func main() {
 	var (
-		configPath   = flag.String("config", "./configs/config.yml", "Configuration file path")
-		showVersion  = flag.Bool("version", false, "Show version information")
-		showHelp     = flag.Bool("help", false, "Show help message")
+		configPath  = flag.String("config", "./configs/config.yml", "Configuration file path")
+		showVersion = flag.Bool("version", false, "Show version information")
+		showHelp    = flag.Bool("help", false, "Show help message")
 	)
-	
+
 	flag.Usage = showUsage
 	flag.Parse()
 
@@ -65,6 +65,9 @@ func main() {
 
 	if *showVersion {
 		fmt.Printf("%s v%s\n", AppName, Version)
+		fmt.Println("NAT & Port Forwarding Manager for Proxmox")
+		fmt.Println("Copyright (c) 2025 NetNAT Project")
+		fmt.Println("https://github.com/rickicode/proxmox-nat")
 		return
 	}
 

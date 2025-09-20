@@ -3,12 +3,12 @@
 
 server:
   # Server listening address (0.0.0.0 for public access)
-  listen_addr: "0.0.0.0:9090"
+  listen_addr: "0.0.0.0:8080"
   
   # Basic authentication credentials
   # IMPORTANT: Change these default credentials!
-  username: "netnat"
-  password: "changeme"
+  username: "admin"
+  password: "netnat123"
 
 network:
   # Public interface detection
@@ -27,7 +27,7 @@ network:
       - 22          # SSH
       - 8006        # Proxmox Web UI
       - 8007        # Proxmox VNC/SPICE
-      - 9090        # NetNAT Web UI (this application)
+      - 8080        # NetNAT Web UI (this application)
 
 storage:
   # Rules storage file (JSON format)

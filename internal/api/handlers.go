@@ -13,6 +13,7 @@ import (
 	"proxmox-nat/internal/models"
 	"proxmox-nat/internal/network"
 	"proxmox-nat/internal/storage"
+	"proxmox-nat/internal/web"
 
 	"github.com/gin-gonic/gin"
 )
@@ -51,9 +52,9 @@ func (a *API) Handler() http.Handler {
 	r.Use(a.authMiddleware())
 	r.Use(a.rateLimitMiddleware())
 
-	// Static files
-	r.Static("/static", "./web/static")
-	r.LoadHTMLGlob("web/templates/*")
+	// Static files from embedded filesystem
+	r.StaticFS("/static", http.FS(web.GetStaticFS()))
+	r.SetHTMLTemplate(web.LoadTemplates())
 
 	// Web UI
 	r.GET("/", a.indexHandler)

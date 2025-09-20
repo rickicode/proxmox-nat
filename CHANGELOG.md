@@ -5,12 +5,46 @@ All notable changes to NetNAT project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+
+## [1.1.0] - 2025-01-20
 
 ### Added
-- Initial release preparation
+- Smart installer update system with version checking
+- Multi-architecture binary support detection in installer
+- Automatic backup during binary updates
+- Enhanced installer with update, version, and help commands
 
-## [1.0.0] - 2024-01-20
+### Changed
+- Improved installer reliability with fallback mechanisms
+- Enhanced error handling during updates
+- Better version detection and comparison
+
+### Fixed
+- Embedded assets system for single binary distribution
+- Template loading issues resolved with Go embed
+- Configuration consistency between installer and application
+- Service restart reliability during updates
+### Added
+- Embedded web assets for true single binary distribution
+- Smart installer with automatic update capabilities
+- Multi-architecture release support (AMD64, ARM64, ARMv7)
+- Version checking and update notifications
+- Enhanced installer commands (install, update, uninstall, version)
+
+### Changed
+- Web assets now embedded in binary using Go embed
+- Installer automatically detects architecture and downloads appropriate binary
+- Improved service management during updates
+- Enhanced configuration file generation
+- Default bridge interface changed to `vmbr1`
+
+### Fixed
+- Critical template loading issues with embedded filesystem
+- Binary distribution problems resolved
+- Service restart reliability improved
+- Default configuration consistency across all files
+
+## [1.0.0] - 2025-01-20
 
 ### Added
 - Complete NAT & Port Forwarding management for Proxmox environments
@@ -52,12 +86,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Username: `admin`
 - Password: `netnat123` (⚠️ Must be changed after installation)
 - Public interface: Auto-detected via default route
-- Bridge interface: `vmbr0`
+- Bridge interface: `vmbr1`
 
 ### Installation
 ```bash
 # One-line installation
 curl -sSL https://raw.githubusercontent.com/rickicode/proxmox-nat/main/install.sh | sudo bash
+
+# Update to latest version
+curl -sSL https://raw.githubusercontent.com/rickicode/proxmox-nat/main/install.sh | sudo bash -s update
+
+# Check version
+curl -sSL https://raw.githubusercontent.com/rickicode/proxmox-nat/main/install.sh | sudo bash -s version
 ```
 
 ### Supported Platforms
@@ -65,5 +105,6 @@ curl -sSL https://raw.githubusercontent.com/rickicode/proxmox-nat/main/install.s
 - Linux ARM64 (Raspberry Pi, ARM servers) 
 - Linux ARMv7 (Older ARM devices)
 
-[Unreleased]: https://github.com/rickicode/proxmox-nat/compare/v1.0.0...HEAD
+[1.1.0]: https://github.com/rickicode/proxmox-nat/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/rickicode/proxmox-nat/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/rickicode/proxmox-nat/releases/tag/v1.0.0
