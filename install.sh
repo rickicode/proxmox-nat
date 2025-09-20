@@ -356,8 +356,9 @@ start_service() {
         print_success "NetNAT service started successfully"
         
         # Get service status
-        local port=$(grep -E "^\s*port:" "$CONFIG_DIR/config.yml" | awk '{print $2}' | tr -d '"')
-        local host=$(grep -E "^\s*host:" "$CONFIG_DIR/config.yml" | awk '{print $2}' | tr -d '"')
+        local listen_addr=$(grep -E "^\s*listen_addr:" "$CONFIG_DIR/config.yml" | awk '{print $2}' | tr -d '"')
+        local host=$(echo "$listen_addr" | cut -d':' -f1)
+        local port=$(echo "$listen_addr" | cut -d':' -f2)
         
         echo ""
         echo "🎉 NetNAT installation completed successfully!"
