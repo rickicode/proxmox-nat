@@ -45,6 +45,15 @@ class NetNATApp {
         // Quick Forward
         document.getElementById('createQuickForward').addEventListener('click', () => this.createQuickForward());
 
+        // Add event listener for Quick Forward button (the one in Rules tab header)
+        const quickForwardBtn = document.querySelector('button[onclick*="showQuickForwardModal"]');
+        if (quickForwardBtn) {
+            quickForwardBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.showQuickForwardModal();
+            });
+        }
+
         // Dark Mode Only (no toggle needed)
 
         // Remove this section since we're using onclick handlers now

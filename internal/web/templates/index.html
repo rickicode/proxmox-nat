@@ -194,9 +194,9 @@
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5><i class="bi bi-list-task"></i> Port Forwarding Rules</h5>
                         <div>
-                            <!-- <button class="btn btn-success me-2" onclick="app.showQuickForwardModal()">
+                            <button class="btn btn-success me-2" onclick="app.showQuickForwardModal()">
                                 <i class="bi bi-lightning"></i> Quick Forward
-                            </button> -->
+                            </button>
                             <button class="btn btn-secondary me-2" id="refresh-rules-btn">
                                 <i class="bi bi-arrow-clockwise"></i> Refresh
                             </button>
@@ -407,8 +407,10 @@
                 <div class="modal-body">
                     <form id="quickForwardForm">
                         <div class="mb-3">
-                            <label class="form-label">Target VM/CT</label>
-                            <input type="text" class="form-control" id="targetInfo" readonly>
+                            <label for="vmSelect" class="form-label">Target VM/CT</label>
+                            <select class="form-select" id="vmSelect" required>
+                                <option value="">Select a VM/CT...</option>
+                            </select>
                             <input type="hidden" id="targetIP">
                         </div>
                         <div class="row">
