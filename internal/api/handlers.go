@@ -44,6 +44,7 @@ func New(config *models.Config, storage *storage.Storage, network *network.Manag
 
 // Handler returns the HTTP handler
 func (a *API) Handler() http.Handler {
+	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 

@@ -248,8 +248,22 @@ func (m *Manager) RestoreBackup(backupPath string, preview bool) (*models.DryRun
 
 	// Validate checksum if present
 	if backupData.Metadata.Checksum != "" {
-		hash := sha256.Sum256(data)
+		// Calculate checksum of the data as it was when the backup was created
+		// The checksum was calculated on the JSON without the checksum field
+		validationData := backupData
+		validationData.Metadata.Checksum = ""
+		validationData.Metadata.FileSize = 0
+
+		// Marshal in the same way as during backup creation
+		tempData, err := json.MarshalIndent(validationData, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal validation data: %w", err)
+		}
+
+		// Calculate hash
+		hash := sha256.Sum256(tempData)
 		expectedChecksum := fmt.Sprintf("%x", hash)
+
 		if backupData.Metadata.Checksum != expectedChecksum {
 			return nil, fmt.Errorf("backup file checksum mismatch")
 		}

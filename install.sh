@@ -307,30 +307,14 @@ Wants=network.target
 Type=simple
 User=root
 Group=root
+WorkingDirectory=$INSTALL_DIR
 ExecStart=$INSTALL_DIR/netnat -config $CONFIG_DIR/config.yml
 Restart=always
 RestartSec=5
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=netnat
-
-# Security settings
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectSystem=strict
-ProtectHome=yes
-ReadWritePaths=$DATA_DIR $LOG_DIR
-ProtectKernelTunables=no
-ProtectKernelModules=yes
-ProtectControlGroups=yes
-
-# Network capabilities
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
-
-# Environment
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-WorkingDirectory=$DATA_DIR
 
 [Install]
 WantedBy=multi-user.target
