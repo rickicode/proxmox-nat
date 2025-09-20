@@ -20,6 +20,9 @@ LOG_DIR="/var/log/netnat"
 SERVICE_NAME="netnat"
 GITHUB_REPO="https://github.com/rickicode/proxmox-nat"
 
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Print colored output
 print_status() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -141,13 +144,11 @@ install_binary() {
     local installed_version=""
     local latest_version=""
     
-    # Check if binary exists in build directory (for local install)
-    if [[ -f "build/netnat" ]]; then
-        print_status "Using local binary from build directory"
-        cp "build/netnat" "$INSTALL_DIR/netnat"
-    elif [[ -f "netnat" ]]; then
-        print_status "Using binary from current directory"
-        cp "netnat" "$INSTALL_DIR/netnat"
+    # Check if binary exists locally
+    if [[ -f "$SCRIPT_DIR/build/netnat" ]]; then
+        cp "$SCRIPT_DIR/build/netnat" "$INSTALL_DIR/netnat"
+    elif [[ -f "$SCRIPT_DIR/netnat" ]]; then
+        cp "$SCRIPT_DIR/netnat" "$INSTALL_DIR/netnat"
     else
         print_status "Checking for latest release from GitHub..."
         
@@ -230,17 +231,22 @@ install_binary() {
     # Set executable permissions
     chmod +x "$INSTALL_DIR/netnat"
     chown root:root "$INSTALL_DIR/netnat"
-    
     print_success "NetNAT binary installed"
 }
 
 # Install configuration files
 install_config() {
-    print_status "Installing configuration files..."
-    
-    # Copy config file
-    if [[ -f "configs/config.yml" ]]; then
-        cp "configs/config.yml" "$CONFIG_DIR/config.yml"
+    print_status "Checking configuration files..."
+
+    # Skip if config already exists (upgrade scenario)
+    if [[ -f "$CONFIG_DIR/config.yml" ]]; then
+        print_status "Configuration file already exists, skipping config installation"
+        return 0
+    fi
+
+    # Copy config file if it exists
+    if [[ -f "$SCRIPT_DIR/configs/config.yml" ]]; then
+        cp "$SCRIPT_DIR/configs/config.yml" "$CONFIG_DIR/config.yml"
         chown root:root "$CONFIG_DIR/config.yml"
         chmod 644 "$CONFIG_DIR/config.yml"
         print_success "Configuration file installed"
