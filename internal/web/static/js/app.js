@@ -50,14 +50,8 @@ class NetNATApp {
         // Quick Forward
         document.getElementById('createQuickForward').addEventListener('click', () => this.createQuickForward());
 
-        // Add event listener for Quick Forward button (the one in Rules tab header)
-        const quickForwardBtn = document.querySelector('button[onclick*="showQuickForwardModal"]');
-        if (quickForwardBtn) {
-            quickForwardBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                this.showQuickForwardModal();
-            });
-        }
+        // Delete Rule Confirmation
+        document.getElementById('confirmDeleteRule').addEventListener('click', () => this.deleteRule());
 
         // Dark Mode Only (no toggle needed)
 
@@ -364,15 +358,17 @@ class NetNATApp {
                 </td>
                 <td>
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary" onclick="app.editRule('${rule.id}')">
+                        <button class="btn btn-outline-primary" onclick="app.editRule('${rule.id}')" title="Edit Rule">
                             <i class="bi bi-pencil"></i>
                         </button>
-                        <button class="btn btn-outline-secondary" onclick="app.toggleRule('${rule.id}')">
+                        <button class="btn btn-outline-secondary" onclick="app.toggleRule('${rule.id}')" title="${rule.enabled ? 'Disable' : 'Enable'} Rule">
                             <i class="bi bi-${rule.enabled ? 'pause' : 'play'}"></i>
                         </button>
-                        <button class="btn btn-outline-danger" onclick="app.deleteRule('${rule.id}')">
-                            <i class="bi bi-trash"></i>
-                        </button>
+                        <div class="btn-group btn-group-sm ms-1">
+                            <button class="btn btn-outline-danger" onclick="app.showDeleteRuleModal('${rule.id}')" title="Delete Rule">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
                     </div>
                 </td>
             `;
@@ -468,20 +464,59 @@ class NetNATApp {
         }
     }
 
-    async deleteRule(id) {
-        if (!confirm('Are you sure you want to delete this rule?')) {
-            return;
+    // Store rule to be deleted
+    ruleToDelete = null;
+
+    showDeleteRuleModal(id) {
+        // Find the rule details for better confirmation message
+        const rulesTable = document.querySelector('#rules-table tbody');
+        if (rulesTable) {
+            const rows = rulesTable.querySelectorAll('tr');
+            for (const row of rows) {
+                const cells = row.querySelectorAll('td');
+                if (cells.length >= 6) {
+                    const editButton = row.querySelector(`button[onclick*="editRule('${id}')"]`);
+                    if (editButton) {
+                        const ruleName = cells[0].textContent;
+                        const externalPort = cells[1].textContent;
+                        const internalIP = cells[2].textContent;
+                        const internalPort = cells[3].textContent;
+                        const protocol = cells[4].textContent;
+
+                        document.getElementById('deleteRuleDetails').textContent =
+                            `${ruleName} (${externalPort}/${protocol} → ${internalIP}:${internalPort})`;
+                        break;
+                    }
+                }
+            }
         }
 
+        this.ruleToDelete = id;
+        const modal = new bootstrap.Modal(document.getElementById('deleteRuleModal'));
+        modal.show();
+    }
+
+    async deleteRule(id) {
+        if (!id && !this.ruleToDelete) return;
+
+        const ruleId = id || this.ruleToDelete;
+
         try {
-            const response = await this.makeRequest(`/api/rules/${id}`, { method: 'DELETE' });
+            const response = await this.makeRequest(`/api/rules/${ruleId}`, { method: 'DELETE' });
             if (response.success) {
                 this.showAlert(response.message, 'warning');
                 this.loadRules();
                 this.loadSystemStatus();
+
+                // Close modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('deleteRuleModal'));
+                if (modal) modal.hide();
+
+                this.ruleToDelete = null;
             }
         } catch (error) {
             console.error('Failed to delete rule:', error);
+            this.showAlert('Failed to delete rule', 'danger');
         }
     }
 
@@ -575,7 +610,11 @@ class NetNATApp {
         // Simple modal without pre-selection - user can manually enter IP
         const modal = new bootstrap.Modal(document.getElementById('quickForwardModal'));
         document.getElementById('quickForwardForm').reset();
-        document.getElementById('targetInfo').value = 'Manual Entry';
+
+        // Set default values for manual entry
+        const targetIP = document.getElementById('targetIP');
+        if (targetIP) targetIP.value = '';
+
         modal.show();
     }
 
@@ -892,21 +931,42 @@ class NetNATApp {
         const totalVMs = totalVMsEl ? totalVMsEl.textContent : '0';
 
         activityContainer.innerHTML = `
-            <div class="mb-2">
-                <small class="text-muted d-block">Last Updated</small>
-                <small class="fw-bold">${timeString}</small>
-            </div>
-            <div class="mb-2">
-                <small class="text-muted d-block">System Status</small>
-                <small class="fw-bold text-${natStatus === 'Enabled' ? 'success' : 'warning'}">${natStatus}</small>
-            </div>
-            <div class="mb-2">
-                <small class="text-muted d-block">Active Rules</small>
-                <small class="fw-bold text-info">${activeRules}</small>
-            </div>
-            <div class="mb-0">
-                <small class="text-muted d-block">Total VMs/CTs</small>
-                <small class="fw-bold text-primary">${totalVMs}</small>
+            <div class="row g-3">
+                <!-- Last Updated -->
+                <div class="col-md-3">
+                    <div class="text-center p-2 bg-light rounded">
+                        <i class="bi bi-clock text-primary mb-1"></i>
+                        <div class="small text-muted">Last Updated</div>
+                        <div class="fw-bold small">${timeString}</div>
+                    </div>
+                </div>
+
+                <!-- System Status -->
+                <div class="col-md-3">
+                    <div class="text-center p-2 bg-light rounded">
+                        <i class="bi bi-shield-check text-${natStatus === 'Enabled' ? 'success' : 'warning'} mb-1"></i>
+                        <div class="small text-muted">System Status</div>
+                        <div class="fw-bold small text-${natStatus === 'Enabled' ? 'success' : 'warning'}">${natStatus}</div>
+                    </div>
+                </div>
+
+                <!-- Active Rules -->
+                <div class="col-md-3">
+                    <div class="text-center p-2 bg-light rounded">
+                        <i class="bi bi-list-task text-info mb-1"></i>
+                        <div class="small text-muted">Active Rules</div>
+                        <div class="fw-bold small text-info">${activeRules}</div>
+                    </div>
+                </div>
+
+                <!-- Total VMs -->
+                <div class="col-md-3">
+                    <div class="text-center p-2 bg-light rounded">
+                        <i class="bi bi-server text-primary mb-1"></i>
+                        <div class="small text-muted">Total VMs/CTs</div>
+                        <div class="fw-bold small text-primary">${totalVMs}</div>
+                    </div>
+                </div>
             </div>
         `;
     }
