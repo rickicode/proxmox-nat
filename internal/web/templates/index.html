@@ -429,14 +429,12 @@
                     <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body py-3">
-                    <form id="quickForwardForm">
-                        <div class="mb-2">
-                            <label for="vmSelect" class="form-label small">Target VM/CT</label>
-                            <select class="form-select form-select-sm" id="vmSelect" required>
-                                <option value="">Select a VM/CT...</option>
-                            </select>
-                            <input type="hidden" id="targetIP">
-                        </div>
+                     <form id="quickForwardForm">
+                         <div class="mb-2">
+                             <label for="targetInfo" class="form-label small">Target VM/CT</label>
+                             <input type="text" class="form-control form-control-sm" id="targetInfo" readonly>
+                             <input type="hidden" id="targetIP">
+                         </div>
                         <div class="row">
                             <div class="col-md-6">
                                 <label for="quickExternalPort" class="form-label small">External Port</label>
