@@ -66,6 +66,11 @@ func (d *VMDiscovery) discoverQEMUVMs() ([]models.VM, error) {
 			continue
 		}
 
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
 			continue
@@ -153,6 +158,11 @@ func (d *VMDiscovery) discoverLXCContainers() ([]models.VM, error) {
 			continue
 		}
 
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
 		fields := strings.Fields(line)
 		if len(fields) < 3 {
 			continue
@@ -160,9 +170,12 @@ func (d *VMDiscovery) discoverLXCContainers() ([]models.VM, error) {
 
 		ctid := fields[0]
 		status := fields[1]
+		// Skip Lock field (index 2) if present
 		name := ""
-		if len(fields) > 2 {
-			name = strings.Join(fields[2:], " ")
+		if len(fields) > 3 {
+			name = fields[3] // Name is at index 3 after VMID, Status, Lock
+		} else if len(fields) == 3 {
+			name = fields[2] // Name is at index 2 if no lock field
 		}
 
 		container := models.VM{
@@ -272,43 +285,79 @@ func (d *VMDiscovery) discoverFromARP() ([]models.VM, error) {
 	return vms, nil
 }
 
-// mergeVMData merges VM data from different sources
+// mergeVMData merges VM data from different sources, avoiding duplicates
 func (d *VMDiscovery) mergeVMData(existing, additional []models.VM) []models.VM {
-	// Create map of existing VMs by IP
-	vmMap := make(map[string]models.VM)
+	// Create map of existing VMs by IP and ID
+	vmByIP := make(map[string]models.VM)
+	vmByID := make(map[string]models.VM)
+
+	// First, index all existing VMs
 	for _, vm := range existing {
+		vmByID[vm.ID] = vm
 		if vm.IP != "" {
-			vmMap[vm.IP] = vm
+			vmByIP[vm.IP] = vm
 		}
 	}
 
-	// Add additional VMs, preferring existing data
+	// Merge additional VMs (mainly from ARP), but avoid duplicates
 	for _, vm := range additional {
-		if vm.IP != "" {
-			if existing, exists := vmMap[vm.IP]; exists {
-				// Merge data, preferring more specific sources
-				if existing.Source == "agent" || existing.Source == "lxc" {
-					// Keep existing (more accurate)
-					continue
-				} else if existing.Name == "" && vm.Name != "" {
-					existing.Name = vm.Name
-					vmMap[vm.IP] = existing
+		if vm.IP == "" {
+			continue // Skip VMs without IP from additional sources
+		}
+
+		// Check if this IP already belongs to a VM/CT we know about
+		if existingVM, exists := vmByIP[vm.IP]; exists {
+			// IP already belongs to an existing VM/CT
+			// Update the existing VM with better name if needed
+			if existingVM.Name == "" && vm.Name != "" && vm.Name != fmt.Sprintf("Host-%s", vm.IP) {
+				existingVM.Name = vm.Name
+				vmByIP[vm.IP] = existingVM
+				vmByID[existingVM.ID] = existingVM
+			}
+			// Don't add as separate entry
+			continue
+		}
+
+		// Check if this is actually a VM/CT we know but without IP detected
+		matched := false
+		for id, existingVM := range vmByID {
+			if existingVM.IP == "" && (existingVM.Name == vm.Name ||
+				(vm.Name != "" && vm.Name != "?" && vm.Name != fmt.Sprintf("Host-%s", vm.IP) &&
+					strings.Contains(strings.ToLower(existingVM.Name), strings.ToLower(vm.Name)))) {
+				// This seems to be the same VM, update with IP
+				existingVM.IP = vm.IP
+				if existingVM.Source == "qm" || existingVM.Source == "pct" {
+					existingVM.Source = "qm+arp" // Indicate mixed source
 				}
-			} else {
-				vmMap[vm.IP] = vm
+				vmByID[id] = existingVM
+				vmByIP[vm.IP] = existingVM
+				matched = true
+				break
 			}
 		}
+
+		// Only add as new entry if it's truly unknown and has a reasonable name
+		if !matched && vm.Source == "arp" && vm.Name != "" && vm.Name != "?" &&
+			!strings.HasPrefix(vm.Name, "Host-") {
+			vmByIP[vm.IP] = vm
+		}
 	}
 
-	// Convert back to slice
+	// Convert back to slice, preferring VMs with known IDs
 	var result []models.VM
-	for _, vm := range vmMap {
+	addedIPs := make(map[string]bool)
+
+	// Add all VMs from vmByID first (these are real VMs/CTs)
+	for _, vm := range vmByID {
 		result = append(result, vm)
+		if vm.IP != "" {
+			addedIPs[vm.IP] = true
+		}
 	}
 
-	// Add VMs without IPs
-	for _, vm := range existing {
-		if vm.IP == "" {
+	// Add any remaining ARP-only entries that weren't matched
+	for ip, vm := range vmByIP {
+		if !addedIPs[ip] && vm.Source == "arp" {
 			result = append(result, vm)
 		}
 	}

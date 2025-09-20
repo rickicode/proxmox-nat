@@ -34,7 +34,7 @@ class NetNATApp {
         // Rules
         document.getElementById('add-rule-btn').addEventListener('click', () => this.showRuleModal());
         document.getElementById('saveRule').addEventListener('click', () => this.saveRule());
-        document.getElementById('refresh-rules-btn').addEventListener('click', () => this.loadRules());
+        document.getElementById('refresh-rules-btn').addEventListener('click', () => this.refreshRules());
 
         // VMs
         document.getElementById('refresh-vms-btn').addEventListener('click', () => this.refreshVMs());
@@ -281,6 +281,49 @@ class NetNATApp {
         } catch (error) {
             console.error('Failed to load rules:', error);
             this.updateRulesTable([]);
+        } finally {
+            this.hideLoading('rules');
+        }
+    }
+
+    // Enhanced refresh with cleanup functionality
+    async refreshRules() {
+        this.showLoading('rules');
+        try {
+            // First perform cleanup and validation
+            const cleanupResponse = await this.makeRequest('/api/rules/cleanup', { method: 'POST' });
+            if (cleanupResponse.success) {
+                const result = cleanupResponse.data;
+                
+                // Show cleanup results
+                let message = cleanupResponse.message;
+                if (result.duplicates_removed > 0 || result.validation_result.fixed_rules > 0) {
+                    message += '\n\nDetails:';
+                    if (result.duplicates_removed > 0) {
+                        message += `\n• Removed ${result.duplicates_removed} duplicate port rules`;
+                    }
+                    if (result.validation_result.fixed_rules > 0) {
+                        message += `\n• Fixed ${result.validation_result.fixed_rules} rule issues`;
+                    }
+                    if (result.validation_result.warnings.length > 0) {
+                        message += `\n• ${result.validation_result.warnings.length} warnings addressed`;
+                    }
+                    
+                    this.showAlert(message, 'info', 8000);
+                } else {
+                    this.showAlert('Rules refreshed - no issues found', 'success');
+                }
+            }
+            
+            // Then reload rules
+            await this.loadRules();
+            await this.loadSystemStatus();
+            
+        } catch (error) {
+            console.error('Failed to refresh rules:', error);
+            // Fallback to simple reload if cleanup fails
+            this.showAlert('Cleanup failed, performing simple refresh', 'warning');
+            await this.loadRules();
         } finally {
             this.hideLoading('rules');
         }

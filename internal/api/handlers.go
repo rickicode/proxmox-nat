@@ -76,6 +76,7 @@ func (a *API) Handler() http.Handler {
 		mutating.PUT("/rules/:id", a.updateRule)
 		mutating.DELETE("/rules/:id", a.deleteRule)
 		mutating.POST("/rules/:id/toggle", a.toggleRule)
+		mutating.POST("/rules/cleanup", a.cleanupRules)
 
 		// VM/CT discovery
 		api.GET("/vms", a.getVMs)
@@ -834,6 +835,58 @@ func (a *API) dryRun(c *gin.Context) {
 	c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Message: "Dry-run completed successfully",
+		Data:    result,
+	})
+}
+
+// cleanupRules cleans up duplicate port rules and validates all rules
+func (a *API) cleanupRules(c *gin.Context) {
+	// Create backup if auto-backup is enabled
+	if a.config.Storage.AutoBackup {
+		if err := a.backup.CreateAutoBackup("pre-cleanup"); err != nil {
+			fmt.Printf("Warning: Failed to create backup: %v\n", err)
+		}
+	}
+
+	// Cleanup duplicate rules
+	duplicatesRemoved, err := a.storage.CleanupDuplicateRules()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to cleanup duplicate rules: %v", err),
+		})
+		return
+	}
+
+	// Validate and fix rules
+	validationResult, err := a.storage.ValidateAndFixRules()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to validate rules: %v", err),
+		})
+		return
+	}
+
+	// Reload and apply rules after cleanup
+	rules, err := a.storage.GetEnabledRules()
+	if err == nil {
+		if err := a.network.ApplyRules(rules); err != nil {
+			fmt.Printf("Warning: Failed to apply cleaned rules: %v\n", err)
+		}
+	}
+
+	result := map[string]interface{}{
+		"duplicates_removed": duplicatesRemoved,
+		"validation_result":  validationResult,
+	}
+
+	message := fmt.Sprintf("Rules cleanup completed. Removed %d duplicates, fixed %d rules",
+		duplicatesRemoved, validationResult.FixedRules)
+
+	c.JSON(http.StatusOK, models.APIResponse{
+		Success: true,
+		Message: message,
 		Data:    result,
 	})
 }

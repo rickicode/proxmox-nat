@@ -183,7 +183,13 @@ body {
 
 .table-striped > tbody > tr:nth-of-type(odd) > td,
 .table-striped > tbody > tr:nth-of-type(odd) > th {
-    background-color: var(--dark-bg-tertiary);
+    background-color: var(--dark-bg-tertiary) !important;
+}
+
+/* Ensure even rows also have proper dark background */
+.table-striped > tbody > tr:nth-of-type(even) > td,
+.table-striped > tbody > tr:nth-of-type(even) > th {
+    background-color: var(--dark-bg-secondary) !important;
 }
 
 /* Buttons Dark Theme */
@@ -945,10 +951,7 @@ label {
     background-color: var(--dark-bg-tertiary) !important;
 }
 
-.table-striped > tbody > tr:nth-of-type(odd) > td,
-.table-striped > tbody > tr:nth-of-type(odd) > th {
-    background-color: var(--dark-bg-tertiary) !important;
-}
+/* Remove duplicate striped table styling - already defined above */
 
 /* Override any remaining light backgrounds */
 .border-bottom,
@@ -1381,4 +1384,55 @@ button.btn[class*="outline"]:hover i {
 
 .table-dark tbody tr:hover .action-btn {
     border-color: var(--dark-accent-blue) !important;
+}
+
+/* Final override to prevent any white backgrounds in tables */
+.table,
+.table-striped,
+.table-dark,
+.table tbody,
+.table thead,
+.table-striped tbody,
+.table-dark tbody {
+    background-color: var(--dark-bg-secondary) !important;
+}
+
+.table tr,
+.table-striped tr,
+.table-dark tr {
+    background-color: inherit !important;
+}
+
+/* Force all table cells to have dark backgrounds */
+.table td,
+.table th,
+.table-striped td,
+.table-striped th,
+.table-dark td,
+.table-dark th {
+    background-color: inherit !important;
+    color: var(--dark-text-primary) !important;
+}
+
+/* Override Bootstrap's default table backgrounds */
+.table-striped tbody tr:nth-of-type(odd) {
+    background-color: var(--dark-bg-tertiary) !important;
+}
+
+.table-striped tbody tr:nth-of-type(even) {
+    background-color: var(--dark-bg-secondary) !important;
+}
+
+/* Ensure no white backgrounds creep in */
+.bg-white,
+.table .bg-white,
+.table-striped .bg-white {
+    background-color: var(--dark-bg-secondary) !important;
+}
+
+/* Override any Bootstrap utility classes that might cause white backgrounds */
+.table .text-bg-light,
+.table .bg-light {
+    background-color: var(--dark-bg-tertiary) !important;
+    color: var(--dark-text-primary) !important;
 }

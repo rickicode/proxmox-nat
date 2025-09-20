@@ -129,3 +129,12 @@ type DryRunResult struct {
 	Deletions []Rule   `json:"deletions"`
 	Conflicts []string `json:"conflicts"`
 }
+
+// ValidationResult represents rule validation and cleanup result
+type ValidationResult struct {
+	TotalRules int      `json:"total_rules"`
+	ValidRules int      `json:"valid_rules"`
+	FixedRules int      `json:"fixed_rules"`
+	Errors     []string `json:"errors"`
+	Warnings   []string `json:"warnings"`
+}

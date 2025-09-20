@@ -291,6 +291,130 @@ func (s *Storage) RestoreRules(backupPath string) error {
 	return s.SaveRules(&rulesData)
 }
 
+// CleanupDuplicateRules removes duplicate port rules (keeping the first one)
+func (s *Storage) CleanupDuplicateRules() (int, error) {
+	rulesData, err := s.LoadRules()
+	if err != nil {
+		return 0, err
+	}
+
+	// Map to track seen port/protocol combinations
+	seen := make(map[string]bool)
+	var cleanRules []models.Rule
+	duplicatesRemoved := 0
+
+	for _, rule := range rulesData.Rules {
+		key := fmt.Sprintf("%d-%s", rule.ExternalPort, rule.Protocol)
+
+		if !seen[key] {
+			// First occurrence, keep it
+			seen[key] = true
+			cleanRules = append(cleanRules, rule)
+		} else {
+			// Duplicate found, skip it
+			duplicatesRemoved++
+			fmt.Printf("Removed duplicate rule: %s (port %d/%s)\n", rule.Name, rule.ExternalPort, rule.Protocol)
+		}
+	}
+
+	// Update rules if duplicates were found
+	if duplicatesRemoved > 0 {
+		rulesData.Rules = cleanRules
+		if err := s.SaveRules(rulesData); err != nil {
+			return 0, err
+		}
+	}
+
+	return duplicatesRemoved, nil
+}
+
+// ValidateAndFixRules validates all rules and fixes common issues
+func (s *Storage) ValidateAndFixRules() (*models.ValidationResult, error) {
+	rulesData, err := s.LoadRules()
+	if err != nil {
+		return nil, err
+	}
+
+	result := &models.ValidationResult{
+		TotalRules: len(rulesData.Rules),
+		ValidRules: 0,
+		FixedRules: 0,
+		Errors:     []string{},
+		Warnings:   []string{},
+	}
+
+	var validRules []models.Rule
+
+	for i, rule := range rulesData.Rules {
+		fixed := false
+
+		// Validate and fix rule name
+		if rule.Name == "" {
+			rule.Name = fmt.Sprintf("Rule-%d", i+1)
+			fixed = true
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Fixed missing name for rule at index %d", i))
+		}
+
+		// Validate ports
+		if rule.ExternalPort < 1 || rule.ExternalPort > 65535 {
+			result.Errors = append(result.Errors, fmt.Sprintf("Invalid external port %d for rule '%s'", rule.ExternalPort, rule.Name))
+			continue
+		}
+
+		if rule.InternalPort < 1 || rule.InternalPort > 65535 {
+			result.Errors = append(result.Errors, fmt.Sprintf("Invalid internal port %d for rule '%s'", rule.InternalPort, rule.Name))
+			continue
+		}
+
+		// Validate IP address
+		if rule.InternalIP == "" {
+			result.Errors = append(result.Errors, fmt.Sprintf("Missing internal IP for rule '%s'", rule.Name))
+			continue
+		}
+
+		// Validate protocol
+		if rule.Protocol != "tcp" && rule.Protocol != "udp" && rule.Protocol != "both" {
+			rule.Protocol = "tcp" // Default to TCP
+			fixed = true
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Fixed invalid protocol for rule '%s', set to TCP", rule.Name))
+		}
+
+		// Ensure timestamps exist
+		if rule.CreatedAt.IsZero() {
+			rule.CreatedAt = time.Now()
+			fixed = true
+		}
+		if rule.UpdatedAt.IsZero() {
+			rule.UpdatedAt = time.Now()
+			fixed = true
+		}
+
+		// Generate ID if missing
+		if rule.ID == "" {
+			rule.ID = fmt.Sprintf("rule-%d", time.Now().Unix()+int64(i))
+			fixed = true
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Generated missing ID for rule '%s'", rule.Name))
+		}
+
+		if fixed {
+			result.FixedRules++
+		}
+
+		validRules = append(validRules, rule)
+		result.ValidRules++
+	}
+
+	// Save if any rules were fixed
+	if result.FixedRules > 0 {
+		rulesData.Rules = validRules
+		if err := s.SaveRules(rulesData); err != nil {
+			return result, err
+		}
+	}
+
+	return result, nil
+}
+
 // GetFilePath returns the rules file path
 func (s *Storage) GetFilePath() string {
 	return s.filePath
