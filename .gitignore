@@ -17,8 +17,9 @@
 # Go workspace file
 go.work
 
-# Build directory
+# Build directory (but keep the binary for distribution)
 build/
+!build/netnat
 
 # Data directory (contains runtime data)
 data/

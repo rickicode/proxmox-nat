@@ -16,6 +16,7 @@ class NetNATApp {
         this.loadVMs();
         this.loadBackups();
         this.updateDashboard();
+        this.initTheme();
         
         // Auto-refresh every 30 seconds
         this.refreshInterval = setInterval(() => {
@@ -44,7 +45,66 @@ class NetNATApp {
         // Quick Forward
         document.getElementById('createQuickForward').addEventListener('click', () => this.createQuickForward());
 
+        // Dark Mode Only (no toggle needed)
+
         // Remove this section since we're using onclick handlers now
+    }
+
+    initTheme() {
+        // Always use dark mode
+        document.documentElement.setAttribute('data-theme', 'dark');
+        const themeIcon = document.getElementById('theme-icon');
+        if (themeIcon) {
+            themeIcon.className = 'bi bi-moon-fill';
+        }
+    }
+
+    showLoading() {
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) {
+            overlay.style.display = 'flex';
+        }
+    }
+
+    hideLoading() {
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) {
+            overlay.style.display = 'none';
+        }
+    }
+
+    showAlert(message, type = 'info', duration = 5000) {
+        const alertContainer = document.getElementById('alert-container');
+        const alertId = 'alert-' + Date.now();
+        
+        const alertHTML = `
+            <div id="${alertId}" class="alert alert-${type} alert-dismissible fade show" role="alert">
+                <i class="bi bi-${this.getAlertIcon(type)} me-2"></i>
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        `;
+        
+        alertContainer.insertAdjacentHTML('beforeend', alertHTML);
+        
+        // Auto-remove after duration
+        setTimeout(() => {
+            const alert = document.getElementById(alertId);
+            if (alert) {
+                const bsAlert = new bootstrap.Alert(alert);
+                bsAlert.close();
+            }
+        }, duration);
+    }
+
+    getAlertIcon(type) {
+        const icons = {
+            'success': 'check-circle-fill',
+            'danger': 'exclamation-triangle-fill',
+            'warning': 'exclamation-triangle-fill',
+            'info': 'info-circle-fill'
+        };
+        return icons[type] || 'info-circle-fill';
     }
 
     switchToTab(tabName) {

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.title}}</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -14,7 +15,7 @@
 </head>
 <body>
     <!-- Navigation -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <nav class="navbar navbar-expand-lg">
         <div class="container-fluid">
             <a class="navbar-brand" href="#">
                 <i class="bi bi-router"></i> NetNAT
@@ -45,17 +46,21 @@
                         </a>
                     </li>
                 </ul>
-                <span class="navbar-text">
+                <div class="navbar-text d-flex align-items-center">
+                    <!-- Dark Mode Only - No toggle needed -->
+                    <span class="text-muted me-3" style="font-size: 0.8rem;">
+                        <i class="bi bi-moon-fill me-1"></i> Dark Mode
+                    </span>
                     <span id="system-status" class="badge bg-secondary">
                         <i class="bi bi-circle-fill"></i> Checking...
                     </span>
-                </span>
+                </div>
             </div>
         </div>
     </nav>
 
     <!-- Main Content -->
-    <div class="container-fluid mt-3">
+    <div class="container-fluid mt-2">
         <!-- Alert Container -->
         <div id="alert-container"></div>
 
@@ -111,16 +116,16 @@
                             <div class="card-body">
                                 <div class="d-grid gap-2">
                                     <button class="btn btn-success" id="enable-nat">
-                                        <i class="bi bi-play-circle text-white"></i> <span class="text-white">Enable NAT</span>
+                                        <i class="bi bi-play-circle"></i> Enable NAT
                                     </button>
                                     <button class="btn btn-warning" id="disable-nat">
-                                        <i class="bi bi-stop-circle text-white"></i> <span class="text-white">Disable NAT</span>
+                                        <i class="bi bi-stop-circle"></i> Disable NAT
                                     </button>
                                     <button class="btn btn-info" id="refresh-vms">
-                                        <i class="bi bi-arrow-clockwise text-white"></i> <span class="text-white">Refresh VM List</span>
+                                        <i class="bi bi-arrow-clockwise"></i> Refresh VM List
                                     </button>
                                     <button class="btn btn-primary" id="backup-now">
-                                        <i class="bi bi-cloud-arrow-down text-white"></i> <span class="text-white">Create Backup</span>
+                                        <i class="bi bi-cloud-arrow-down"></i> Create Backup
                                     </button>
                                 </div>
                             </div>
@@ -198,10 +203,10 @@
                         <h5><i class="bi bi-list-task"></i> Port Forwarding Rules</h5>
                         <div>
                             <button class="btn btn-secondary me-2" id="refresh-rules-btn">
-                                <i class="bi bi-arrow-clockwise text-white"></i> <span class="text-white">Refresh</span>
+                                <i class="bi bi-arrow-clockwise"></i> Refresh
                             </button>
                             <button class="btn btn-primary" id="add-rule-btn">
-                                <i class="bi bi-plus-circle text-white"></i> <span class="text-white">Add Rule</span>
+                                <i class="bi bi-plus-circle"></i> Add Rule
                             </button>
                         </div>
                     </div>
@@ -242,7 +247,7 @@
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5><i class="bi bi-server"></i> Virtual Machines & Containers</h5>
                         <button class="btn btn-secondary" id="refresh-vms-btn">
-                            <i class="bi bi-arrow-clockwise text-white"></i> <span class="text-white">Refresh</span>
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
                         </button>
                     </div>
                     <div class="card-body">
@@ -319,14 +324,14 @@
                             <div class="card-body">
                                 <div class="d-grid gap-2">
                                     <button class="btn btn-primary" id="create-backup-btn">
-                                        <i class="bi bi-plus-circle text-white"></i> <span class="text-white">Create Backup</span>
+                                        <i class="bi bi-plus-circle"></i> Create Backup
                                     </button>
                                     <button class="btn btn-info" id="import-backup-btn">
-                                        <i class="bi bi-upload text-white"></i> <span class="text-white">Import Backup</span>
+                                        <i class="bi bi-upload"></i> Import Backup
                                     </button>
                                     <hr>
                                     <small class="text-muted">
-                                        <i class="bi bi-info-circle"></i> 
+                                        <i class="bi bi-info-circle"></i>
                                         Backups are created automatically before any rule changes.
                                     </small>
                                 </div>
@@ -436,6 +441,16 @@
                     <button type="button" class="btn btn-primary" id="createQuickForward">Create Rule</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay" style="display: none;">
+        <div class="loading-content">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-3 text-muted">Processing your request...</p>
         </div>
     </div>
 

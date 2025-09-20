@@ -1,0 +1,201 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build for Multiple Platforms
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            name: netnat-linux-amd64
+          - goos: linux
+            goarch: arm64
+            name: netnat-linux-arm64
+          - goos: linux
+            goarch: arm
+            goarm: 7
+            name: netnat-linux-armv7
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Get version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Run tests
+      run: go test -v ./...
+
+    - name: Build binary
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+        GOARM: ${{ matrix.goarm }}
+        CGO_ENABLED: 0
+      run: |
+        VERSION=${{ steps.version.outputs.VERSION }}
+        LDFLAGS="-X main.Version=${VERSION#v} -s -w"
+        
+        go build \
+          -trimpath \
+          -ldflags "$LDFLAGS" \
+          -o build/${{ matrix.name }} \
+          ./cmd/netnat
+
+    - name: Create checksums
+      run: |
+        cd build
+        sha256sum ${{ matrix.name }} > ${{ matrix.name }}.sha256
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ matrix.name }}
+        path: |
+          build/${{ matrix.name }}
+          build/${{ matrix.name }}.sha256
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Get version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: artifacts
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release
+        find artifacts -type f -name "netnat-*" -exec cp {} release/ \;
+        
+        # Create special symlink for default linux-amd64 binary (for installer)
+        cd release
+        cp netnat-linux-amd64 netnat
+        sha256sum netnat > netnat.sha256
+        
+        # Create release archive
+        tar -czf netnat-${{ steps.version.outputs.VERSION }}-all-platforms.tar.gz netnat-*
+        
+        ls -la
+
+    - name: Extract changelog for version
+      id: changelog
+      run: |
+        VERSION=${{ steps.version.outputs.VERSION }}
+        
+        # Extract changelog for this version from CHANGELOG.md
+        if [ -f "CHANGELOG.md" ]; then
+          # Get the section for this version, fallback to latest if version not found
+          CHANGELOG_CONTENT=$(awk -v version="${VERSION#v}" '
+            /^## \[/ {
+              if (found) exit;
+              if ($0 ~ "\\[" version "\\]") found=1;
+              else if (NR > 1) found=0;
+              next;
+            }
+            found && /^## \[/ { exit; }
+            found { print; }
+          ' CHANGELOG.md)
+          
+          # If no specific version found, use the latest unreleased section
+          if [ -z "$CHANGELOG_CONTENT" ]; then
+            CHANGELOG_CONTENT=$(awk '
+              /^## \[Unreleased\]/ { found=1; next; }
+              /^## \[/ && found { exit; }
+              found { print; }
+            ' CHANGELOG.md)
+          fi
+          
+          # Add installation instructions
+          CHANGELOG_CONTENT="${CHANGELOG_CONTENT}
+
+### 📦 Quick Installation
+\`\`\`bash
+curl -sSL https://raw.githubusercontent.com/rickicode/proxmox-nat/main/install.sh | sudo bash
+\`\`\`
+
+### 🔐 Default Login
+- Username: \`admin\`
+- Password: \`netnat123\` (⚠️ Change after installation!)"
+          
+          echo "CHANGELOG_CONTENT<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        else
+          echo "CHANGELOG_CONTENT=No changelog available" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.VERSION }}
+        name: NetNAT ${{ steps.version.outputs.VERSION }}
+        body: ${{ steps.changelog.outputs.CHANGELOG_CONTENT }}
+        draft: false
+        prerelease: false
+        files: |
+          release/netnat
+          release/netnat.sha256
+          release/netnat-linux-amd64
+          release/netnat-linux-amd64.sha256
+          release/netnat-linux-arm64
+          release/netnat-linux-arm64.sha256
+          release/netnat-linux-armv7
+          release/netnat-linux-armv7.sha256
+          release/netnat-${{ steps.version.outputs.VERSION }}-all-platforms.tar.gz
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
