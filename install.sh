@@ -41,7 +41,7 @@ print_error() {
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         print_error "This script must be run as root"
-        echo "Please run: sudo $0"
+        echo "Please run: sudo su -c \"$0\""
         exit 1
     fi
 }
@@ -103,8 +103,8 @@ create_directories() {
     # Set proper permissions
     chown root:root "$INSTALL_DIR"
     chown root:root "$CONFIG_DIR"
-    chown netnat:netnat "$DATA_DIR" 2>/dev/null || true
-    chown netnat:netnat "$LOG_DIR" 2>/dev/null || true
+    chown root:root "$DATA_DIR"
+    chown root:root "$LOG_DIR"
     
     chmod 755 "$INSTALL_DIR"
     chmod 755 "$CONFIG_DIR"
@@ -114,16 +114,9 @@ create_directories() {
     print_success "Directories created"
 }
 
-# Create netnat user
+# Remove netnat user function
 create_user() {
-    print_status "Creating netnat user..."
-    
-    if ! id "netnat" &>/dev/null; then
-        useradd --system --shell /bin/false --home-dir "$DATA_DIR" --create-home netnat
-        print_success "User 'netnat' created"
-    else
-        print_warning "User 'netnat' already exists"
-    fi
+    print_status "Skipping user creation. Running as root."
 }
 
 # Get installed version
@@ -290,13 +283,13 @@ EOF
     # Create initial rules file
     if [[ ! -f "$DATA_DIR/rules.json" ]]; then
         echo '{"rules": []}' > "$DATA_DIR/rules.json"
-        chown netnat:netnat "$DATA_DIR/rules.json"
+        chown root:root "$DATA_DIR/rules.json"
         chmod 644 "$DATA_DIR/rules.json"
     fi
     
     # Create backup directory
     mkdir -p "$DATA_DIR/backups"
-    chown -R netnat:netnat "$DATA_DIR"
+    chown -R root:root "$DATA_DIR"
 }
 
 # Install systemd service
@@ -312,8 +305,8 @@ Wants=network.target
 
 [Service]
 Type=simple
-User=netnat
-Group=netnat
+User=root
+Group=root
 ExecStart=$INSTALL_DIR/netnat -config $CONFIG_DIR/config.yml
 Restart=always
 RestartSec=5
