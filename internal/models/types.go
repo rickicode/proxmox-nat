@@ -138,3 +138,12 @@ type ValidationResult struct {
 	Errors     []string `json:"errors"`
 	Warnings   []string `json:"warnings"`
 }
+
+// OrphanCleanupResult represents the result of orphaned rules cleanup
+type OrphanCleanupResult struct {
+	TotalRules     int    `json:"total_rules"`
+	OrphanedRules  []Rule `json:"orphaned_rules"`
+	RemainingRules []Rule `json:"remaining_rules"`
+	RemovedCount   int    `json:"removed_count"`
+	DryRun         bool   `json:"dry_run"`
+}

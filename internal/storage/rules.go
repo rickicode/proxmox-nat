@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -418,4 +419,154 @@ func (s *Storage) ValidateAndFixRules() (*models.ValidationResult, error) {
 // GetFilePath returns the rules file path
 func (s *Storage) GetFilePath() string {
 	return s.filePath
+}
+
+// DetectOrphanedRules detects rules pointing to non-existent VMs
+func (s *Storage) DetectOrphanedRules(activeVMIPs []string) ([]models.Rule, error) {
+	rulesData, err := s.LoadRules()
+	if err != nil {
+		return nil, err
+	}
+
+	// Create map of active IPs for faster lookup
+	activeIPMap := make(map[string]bool)
+	for _, ip := range activeVMIPs {
+		activeIPMap[ip] = true
+	}
+
+	var orphanedRules []models.Rule
+	for _, rule := range rulesData.Rules {
+		// Check if rule's internal IP is still active
+		if !activeIPMap[rule.InternalIP] {
+			orphanedRules = append(orphanedRules, rule)
+		}
+	}
+
+	return orphanedRules, nil
+}
+
+// RemoveOrphanedRules removes rules pointing to non-existent VMs with smart detection
+func (s *Storage) RemoveOrphanedRules(activeVMIPs []string, allVMIDs []string, dryRun bool) (*models.OrphanCleanupResult, error) {
+	rulesData, err := s.LoadRules()
+	if err != nil {
+		return nil, err
+	}
+
+	// Create maps for faster lookup
+	activeIPMap := make(map[string]bool)
+	for _, ip := range activeVMIPs {
+		activeIPMap[ip] = true
+	}
+
+	activeVMMap := make(map[string]bool)
+	for _, vmid := range allVMIDs {
+		activeVMMap[vmid] = true
+	}
+
+	result := &models.OrphanCleanupResult{
+		TotalRules:     len(rulesData.Rules),
+		OrphanedRules:  []models.Rule{},
+		RemainingRules: []models.Rule{},
+		RemovedCount:   0,
+		DryRun:         dryRun,
+	}
+
+	for _, rule := range rulesData.Rules {
+		isOrphaned := false
+
+		// Check if rule points to an IP that's no longer active
+		if !activeIPMap[rule.InternalIP] {
+			// Additional check: is this IP in private range and could be valid?
+			if s.isPrivateIP(rule.InternalIP) {
+				// Check if this rule was created for a VM that still exists but without guest agent
+				// Look for patterns like "VM 100", "CT 101", etc. in rule name
+				if !s.isRuleForExistingVM(rule, activeVMMap) {
+					// This is likely an orphaned rule - VM deleted
+					isOrphaned = true
+				}
+				// Else: VM exists but no IP detected (no guest agent) - keep rule
+			} else {
+				// Non-private IP or invalid IP - likely orphaned
+				isOrphaned = true
+			}
+		}
+
+		if isOrphaned {
+			result.OrphanedRules = append(result.OrphanedRules, rule)
+			result.RemovedCount++
+		} else {
+			result.RemainingRules = append(result.RemainingRules, rule)
+		}
+	}
+
+	// If not a dry run, actually remove orphaned rules
+	if !dryRun && result.RemovedCount > 0 {
+		rulesData.Rules = result.RemainingRules
+		if err := s.SaveRules(rulesData); err != nil {
+			return result, err
+		}
+	}
+
+	return result, nil
+}
+
+// isPrivateIP checks if an IP address is in private range
+func (s *Storage) isPrivateIP(ipStr string) bool {
+	// Simple check for private IP ranges
+	if ipStr == "" {
+		return false
+	}
+
+	// Private ranges: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
+	if strings.HasPrefix(ipStr, "10.") ||
+		strings.HasPrefix(ipStr, "192.168.") ||
+		(strings.HasPrefix(ipStr, "172.") && len(ipStr) > 4) {
+		return true
+	}
+
+	return false
+}
+
+// isRuleForExistingVM checks if rule name contains VM/CT ID that still exists
+func (s *Storage) isRuleForExistingVM(rule models.Rule, activeVMMap map[string]bool) bool {
+	// Look for patterns like "VM 100", "CT 101", "(100)", etc. in rule name
+	ruleName := strings.ToLower(rule.Name)
+
+	// Extract potential VM/CT IDs from rule name
+	for vmid := range activeVMMap {
+		// Check various patterns
+		patterns := []string{
+			"vm " + vmid,
+			"ct " + vmid,
+			"(" + vmid + ")",
+			"vm" + vmid,
+			"ct" + vmid,
+			vmid + ")", // For patterns like "webserver (100)"
+		}
+
+		for _, pattern := range patterns {
+			if strings.Contains(ruleName, pattern) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// GetRulesByIP returns all rules pointing to a specific IP
+func (s *Storage) GetRulesByIP(targetIP string) ([]models.Rule, error) {
+	rulesData, err := s.LoadRules()
+	if err != nil {
+		return nil, err
+	}
+
+	var matchingRules []models.Rule
+	for _, rule := range rulesData.Rules {
+		if rule.InternalIP == targetIP {
+			matchingRules = append(matchingRules, rule)
+		}
+	}
+
+	return matchingRules, nil
 }

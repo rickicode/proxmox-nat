@@ -227,16 +227,6 @@ class NetNATApp {
         document.getElementById('public-interface').textContent = status.public_interface || '-';
         document.getElementById('internal-bridge').textContent = status.internal_bridge || '-';
 
-        // Update navbar status
-        const systemStatus = document.getElementById('system-status');
-        if (status.nat_enabled && status.ip_forward_enabled) {
-            systemStatus.className = 'badge bg-success';
-            systemStatus.innerHTML = '<i class="bi bi-circle-fill"></i> Online';
-        } else {
-            systemStatus.className = 'badge bg-warning';
-            systemStatus.innerHTML = '<i class="bi bi-circle-fill"></i> Partial';
-        }
-        
         // Update dashboard summary
         this.updateDashboard();
     }
@@ -558,6 +548,16 @@ class NetNATApp {
         document.getElementById('targetInfo').value = `${name} (${vmId}) - ${ip}`;
         document.getElementById('targetIP').value = ip;
         document.getElementById('quickForwardForm').reset();
+        document.getElementById('targetInfo').value = `${name} (${vmId}) - ${ip}`;
+        document.getElementById('targetIP').value = ip;
+        modal.show();
+    }
+    
+    showQuickForwardModal() {
+        // Simple modal without pre-selection - user can manually enter IP
+        const modal = new bootstrap.Modal(document.getElementById('quickForwardModal'));
+        document.getElementById('quickForwardForm').reset();
+        document.getElementById('targetInfo').value = 'Manual Entry';
         modal.show();
     }
 
@@ -568,11 +568,31 @@ class NetNATApp {
             return;
         }
 
+        const targetInfo = document.getElementById('targetInfo').value;
+        const targetIP = document.getElementById('targetIP').value;
+        const externalPort = document.getElementById('quickExternalPort').value;
+        const internalPort = document.getElementById('quickInternalPort').value;
+        const protocol = document.getElementById('quickProtocol').value.toUpperCase();
+        
+        // Validate target IP
+        if (!targetIP || targetIP.trim() === '') {
+            this.showAlert('Please select a valid VM/CT or enter target IP manually', 'warning');
+            return;
+        }
+        
+        // Create a descriptive rule name based on available info
+        let ruleName;
+        if (targetInfo === 'Manual Entry') {
+            ruleName = `Forward to ${targetIP} - ${protocol}:${externalPort}→${internalPort}`;
+        } else {
+            ruleName = `${targetInfo} - ${protocol}:${externalPort}→${internalPort}`;
+        }
+
         const rule = {
-            name: `Forward to ${document.getElementById('targetInfo').value}`,
-            external_port: parseInt(document.getElementById('quickExternalPort').value),
-            internal_ip: document.getElementById('targetIP').value,
-            internal_port: parseInt(document.getElementById('quickInternalPort').value),
+            name: ruleName,
+            external_port: parseInt(externalPort),
+            internal_ip: targetIP,
+            internal_port: parseInt(internalPort),
             protocol: document.getElementById('quickProtocol').value,
             enabled: true,
         };
@@ -591,6 +611,50 @@ class NetNATApp {
             }
         } catch (error) {
             console.error('Failed to create quick forward:', error);
+        }
+    }
+
+    // Orphaned Rules Management
+    async detectOrphanedRules() {
+        try {
+            const response = await this.makeRequest('/api/rules/orphaned');
+            if (response.success) {
+                const result = response.data;
+                
+                if (result.orphaned_rules && result.orphaned_rules.length > 0) {
+                    let message = `Found ${result.orphaned_rules.length} orphaned rule(s):\n\n`;
+                    result.orphaned_rules.slice(0, 5).forEach(rule => {
+                        message += `• ${rule.name}: ${rule.external_port}/${rule.protocol} → ${rule.internal_ip}:${rule.internal_port}\n`;
+                    });
+                    
+                    if (result.orphaned_rules.length > 5) {
+                        message += `... and ${result.orphaned_rules.length - 5} more rules\n`;
+                    }
+                    
+                    message += '\nThese rules point to VMs/CTs that no longer exist. Would you like to remove them?';
+                    
+                    if (confirm(message)) {
+                        await this.cleanOrphanedRules();
+                    }
+                } else {
+                    this.showAlert('No orphaned rules found', 'success');
+                }
+            }
+        } catch (error) {
+            console.error('Failed to detect orphaned rules:', error);
+        }
+    }
+
+    async cleanOrphanedRules() {
+        try {
+            const response = await this.makeRequest('/api/rules/orphaned/cleanup', { method: 'POST' });
+            if (response.success) {
+                this.showAlert(response.message, 'success');
+                this.loadRules();
+                this.loadSystemStatus();
+            }
+        } catch (error) {
+            console.error('Failed to clean orphaned rules:', error);
         }
     }
 

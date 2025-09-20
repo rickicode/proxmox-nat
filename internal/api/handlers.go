@@ -99,6 +99,10 @@ func (a *API) Handler() http.Handler {
 		// Dry-run operations
 		mutating.POST("/dry-run", a.dryRun)
 
+		// Orphaned rules management
+		api.GET("/rules/orphaned", a.detectOrphanedRules)
+		mutating.POST("/rules/orphaned/cleanup", a.cleanOrphanedRules)
+
 		// CSRF token endpoint
 		api.GET("/csrf-token", a.getCSRFToken)
 	}
@@ -887,6 +891,104 @@ func (a *API) cleanupRules(c *gin.Context) {
 	c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Message: message,
+		Data:    result,
+	})
+}
+
+// detectOrphanedRules detects rules pointing to deleted VMs
+func (a *API) detectOrphanedRules(c *gin.Context) {
+	// Get all VMs for comparison
+	allVMs, err := a.discovery.DiscoverVMs()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to discover VMs for orphan detection: %v", err),
+		})
+		return
+	}
+
+	// Extract active VM IPs and IDs
+	var activeVMIPs []string
+	var allVMIDs []string
+
+	for _, vm := range allVMs {
+		if vm.IP != "" {
+			activeVMIPs = append(activeVMIPs, vm.IP)
+		}
+		if vm.ID != "" {
+			allVMIDs = append(allVMIDs, vm.ID)
+		}
+	}
+
+	// Detect orphaned rules (dry run)
+	result, err := a.storage.RemoveOrphanedRules(activeVMIPs, allVMIDs, true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to detect orphaned rules: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.APIResponse{
+		Success: true,
+		Data:    result,
+	})
+}
+
+// cleanOrphanedRules removes orphaned rules after confirmation
+func (a *API) cleanOrphanedRules(c *gin.Context) {
+	// Get all VMs for comparison
+	allVMs, err := a.discovery.DiscoverVMs()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to discover VMs for orphan cleanup: %v", err),
+		})
+		return
+	}
+
+	// Extract active VM IPs and IDs
+	var activeVMIPs []string
+	var allVMIDs []string
+
+	for _, vm := range allVMs {
+		if vm.IP != "" {
+			activeVMIPs = append(activeVMIPs, vm.IP)
+		}
+		if vm.ID != "" {
+			allVMIDs = append(allVMIDs, vm.ID)
+		}
+	}
+
+	// Create backup if auto-backup is enabled
+	if a.config.Storage.AutoBackup {
+		if err := a.backup.CreateAutoBackup("pre-orphan-cleanup"); err != nil {
+			fmt.Printf("Warning: Failed to create backup: %v\n", err)
+		}
+	}
+
+	// Remove orphaned rules (actual cleanup)
+	result, err := a.storage.RemoveOrphanedRules(activeVMIPs, allVMIDs, false)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to clean orphaned rules: %v", err),
+		})
+		return
+	}
+
+	// Apply network rules after cleanup
+	rules, err := a.storage.GetEnabledRules()
+	if err == nil {
+		if err := a.network.ApplyRules(rules); err != nil {
+			fmt.Printf("Warning: Failed to apply rules after orphan cleanup: %v\n", err)
+		}
+	}
+
+	c.JSON(http.StatusOK, models.APIResponse{
+		Success: true,
+		Message: fmt.Sprintf("Orphaned rules cleanup completed. Removed %d rules", result.RemovedCount),
 		Data:    result,
 	})
 }
