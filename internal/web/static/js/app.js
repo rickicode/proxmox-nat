@@ -5,7 +5,7 @@ class NetNATApp {
         this.currentRule = null;
         this.refreshInterval = null;
         this.vmCacheTimestamp = 0;
-        this.vmCacheTimeout = 30000; // 30 seconds cache
+        this.vmCacheTimeout = 15000; // 15 seconds cache - more responsive
 
         this.init();
     }
@@ -13,19 +13,54 @@ class NetNATApp {
     init() {
         this.setupEventListeners();
         this.getCSRFToken();
-        this.loadSystemStatus();
-        this.loadRules();
-        this.loadVMs();
-        this.loadBackups();
-        this.loadNetworkTraffic();
-        this.updateDashboard();
         this.initTheme();
+
+        // Load initial data with VM discovery prioritized
+        this.loadInitialData();
 
         // Auto-refresh every 30 seconds
         this.refreshInterval = setInterval(() => {
             this.loadSystemStatus();
             this.loadNetworkTraffic();
         }, 30000);
+
+        // Auto-refresh VMs every 2 minutes
+        this.vmRefreshInterval = setInterval(() => {
+            this.loadVMs(false); // Use cached data, only refresh if cache expired
+            this.updateDashboard();
+        }, 120000);
+
+        // Cleanup intervals on page unload
+        window.addEventListener('beforeunload', () => {
+            this.cleanup();
+        });
+    }
+
+    cleanup() {
+        if (this.refreshInterval) {
+            clearInterval(this.refreshInterval);
+            this.refreshInterval = null;
+        }
+        if (this.vmRefreshInterval) {
+            clearInterval(this.vmRefreshInterval);
+            this.vmRefreshInterval = null;
+        }
+    }
+
+    async loadInitialData() {
+        // Load system status, rules, and backups first
+        await Promise.all([
+            this.loadSystemStatus(),
+            this.loadRules(),
+            this.loadBackups(),
+            this.loadNetworkTraffic()
+        ]);
+
+        // Force VM discovery on initial load to ensure VMs are discovered immediately
+        await this.loadVMs(true); // forceRefresh = true
+
+        // Update dashboard after all data is loaded
+        this.updateDashboard();
     }
 
     setupEventListeners() {
@@ -529,7 +564,7 @@ class NetNATApp {
 
         if (isCacheValid && this.cachedVMData) {
             this.updateVMsTable(this.cachedVMData);
-            return;
+            return this.cachedVMData;
         }
 
         this.showLoading('vms');
@@ -540,13 +575,18 @@ class NetNATApp {
                 this.cachedVMData = response.data;
                 this.vmCacheTimestamp = now;
                 this.updateVMsTable(response.data);
+                return response.data;
+            } else {
+                throw new Error(response.error || 'Failed to load VMs');
             }
         } catch (error) {
             console.error('Failed to load VMs:', error);
             if (this.cachedVMData) {
                 this.updateVMsTable(this.cachedVMData);
+                return this.cachedVMData;
             } else {
                 this.updateVMsTable([]);
+                return [];
             }
         } finally {
             this.hideLoading('vms');
