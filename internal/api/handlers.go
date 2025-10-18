@@ -25,15 +25,17 @@ type API struct {
 	network   *network.Manager
 	backup    *backup.Manager
 	discovery *discovery.VMDiscovery
+	version   string
 }
 
 // New creates a new API instance
-func New(config *models.Config, storage *storage.Storage, network *network.Manager, backup *backup.Manager) *API {
+func New(config *models.Config, storage *storage.Storage, network *network.Manager, backup *backup.Manager, version string) *API {
 	api := &API{
 		config:  config,
 		storage: storage,
 		network: network,
 		backup:  backup,
+		version: version,
 	}
 
 	// Initialize VM discovery
@@ -109,6 +111,9 @@ func (a *API) Handler() http.Handler {
 
 		// Network monitoring
 		api.GET("/network/traffic", a.getNetworkTraffic)
+
+		// System info
+		api.GET("/version", a.getVersion)
 	}
 
 	return r
@@ -1021,5 +1026,20 @@ func (a *API) getNetworkTraffic(c *gin.Context) {
 	c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Data:    traffic,
+	})
+}
+
+// getVersion returns application version information
+func (a *API) getVersion(c *gin.Context) {
+	versionInfo := map[string]interface{}{
+		"version":     a.version,
+		"app_name":    "NetNAT",
+		"description": "NAT & Port Forwarding Manager",
+		"build_time":  time.Now().Format("2006-01-02"), // Could be set during build
+	}
+
+	c.JSON(http.StatusOK, models.APIResponse{
+		Success: true,
+		Data:    versionInfo,
 	})
 }

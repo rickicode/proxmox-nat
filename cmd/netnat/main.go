@@ -127,7 +127,7 @@ func main() {
 
 	// Initialize API server
 	log.Printf("Initializing API server...")
-	apiServer := api.New(cfg, store, netMgr, backupMgr)
+	apiServer := api.New(cfg, store, netMgr, backupMgr, Version)
 	log.Printf("API server initialized successfully")
 
 	// Setup HTTP server

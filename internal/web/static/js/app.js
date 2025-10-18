@@ -48,12 +48,13 @@ class NetNATApp {
     }
 
     async loadInitialData() {
-        // Load system status, rules, and backups first
+        // Load system status, rules, backups, and version first
         await Promise.all([
             this.loadSystemStatus(),
             this.loadRules(),
             this.loadBackups(),
-            this.loadNetworkTraffic()
+            this.loadNetworkTraffic(),
+            this.loadVersion()
         ]);
 
         // Force VM discovery on initial load to ensure VMs are discovered immediately
@@ -1253,6 +1254,23 @@ class NetNATApp {
         }
     }
 
+    async loadVersion() {
+        try {
+            const response = await this.makeRequest('/api/version');
+            if (response.success) {
+                this.updateVersionDisplay(response.data);
+            }
+        } catch (error) {
+            console.error('Failed to load version:', error);
+            // Fallback to default version
+            this.updateVersionDisplay({
+                version: '1.1.1',
+                app_name: 'NetNAT',
+                description: 'NAT & Port Forwarding Manager'
+            });
+        }
+    }
+
     async refreshNetworkTraffic() {
         const btn = document.getElementById('refresh-traffic-btn');
         if (!btn) return;
@@ -1502,6 +1520,20 @@ container.innerHTML = `
                 </small>
             </div>
         `;
+    }
+
+    updateVersionDisplay(versionInfo) {
+        const footerVersionElement = document.getElementById('footer-version');
+        if (footerVersionElement && versionInfo) {
+            const version = versionInfo.version || '1.1.1';
+            const appName = versionInfo.app_name || 'NetNAT';
+            const description = versionInfo.description || 'NAT & Port Forwarding Manager';
+
+            footerVersionElement.innerHTML = `
+                <i class="bi bi-shield-check me-1"></i>
+                ${appName} v${version} - ${description}
+            `;
+        }
     }
 }
 
