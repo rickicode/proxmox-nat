@@ -923,7 +923,7 @@ div:not(.badge):not(.btn):not(.card):not(.modal):not(.dropdown-menu) {
 #internal-bridge {
     color: var(--dark-accent-blue) !important;
     background-color: var(--dark-bg-tertiary) !important;
-    padding: 0.5rem 0.75rem !important;
+    /* padding: 0.5rem 0.75rem !important; */
     border-radius: 6px !important;
     border: 1px solid var(--dark-border) !important;
 }

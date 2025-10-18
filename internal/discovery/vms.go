@@ -1,12 +1,15 @@
 package discovery
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"proxmox-nat/internal/models"
 )
@@ -14,45 +17,89 @@ import (
 // VMDiscovery handles VM and container discovery
 type VMDiscovery struct {
 	bridgeInterface string
+	cache          *VMCache
+	cacheTimeout   time.Duration
+}
+
+// VMCache stores cached VM data with timestamps
+type VMCache struct {
+	vms      []models.VM
+	timestamp time.Time
+	mutex    sync.RWMutex
 }
 
 // New creates a new VM discovery instance
 func New(bridgeInterface string) *VMDiscovery {
 	return &VMDiscovery{
 		bridgeInterface: bridgeInterface,
+		cache:          &VMCache{},
+		cacheTimeout:   60 * time.Second, // Cache for 60 seconds
 	}
 }
 
-// DiscoverVMs discovers VMs and containers using hybrid approach
+// DiscoverVMs discovers VMs and containers using parallel approach with caching
 func (d *VMDiscovery) DiscoverVMs() ([]models.VM, error) {
-	var allVMs []models.VM
+	// Check cache first
+	d.cache.mutex.RLock()
+	if time.Since(d.cache.timestamp) < d.cacheTimeout {
+		cachedVMs := make([]models.VM, len(d.cache.vms))
+		copy(cachedVMs, d.cache.vms)
+		d.cache.mutex.RUnlock()
+		return cachedVMs, nil
+	}
+	d.cache.mutex.RUnlock()
 
-	// 1. Try QEMU Guest Agent first (most accurate)
-	if qemuVMs, err := d.discoverQEMUVMs(); err == nil {
+	var allVMs []models.VM
+	var wg sync.WaitGroup
+	var qemuVMs, lxcVMs, arpVMs []models.VM
+	var qemuErr, lxcErr, arpErr error
+
+	// Run discovery methods in parallel
+	wg.Add(3)
+
+	// QEMU VMs discovery
+	go func() {
+		defer wg.Done()
+		qemuVMs, qemuErr = d.discoverQEMUVMs()
+	}()
+
+	// LXC containers discovery
+	go func() {
+		defer wg.Done()
+		lxcVMs, lxcErr = d.discoverLXCContainers()
+	}()
+
+	// ARP table discovery
+	go func() {
+		defer wg.Done()
+		arpVMs, arpErr = d.discoverFromARP()
+	}()
+
+	wg.Wait()
+
+	// Collect results
+	if qemuErr == nil {
 		allVMs = append(allVMs, qemuVMs...)
 	}
-
-	// 2. Try LXC containers
-	if lxcVMs, err := d.discoverLXCContainers(); err == nil {
+	if lxcErr == nil {
 		allVMs = append(allVMs, lxcVMs...)
 	}
-
-	// 3. Supplement with ARP table discovery
-	arpVMs, err := d.discoverFromARP()
-	if err == nil {
+	if arpErr == nil {
 		allVMs = d.mergeVMData(allVMs, arpVMs)
 	}
 
-	// 4. Add manual entries if configured
-	// This would be extended to read from config manual mappings
+	// Update cache
+	d.cache.mutex.Lock()
+	d.cache.vms = make([]models.VM, len(allVMs))
+	copy(d.cache.vms, allVMs)
+	d.cache.timestamp = time.Now()
+	d.cache.mutex.Unlock()
 
 	return allVMs, nil
 }
 
-// discoverQEMUVMs discovers QEMU VMs using qm command and guest agent
+// discoverQEMUVMs discovers QEMU VMs using qm command and parallel guest agent calls
 func (d *VMDiscovery) discoverQEMUVMs() ([]models.VM, error) {
-	var vms []models.VM
-
 	// Get list of VMs
 	cmd := exec.Command("qm", "list")
 	output, err := cmd.Output()
@@ -61,6 +108,13 @@ func (d *VMDiscovery) discoverQEMUVMs() ([]models.VM, error) {
 	}
 
 	lines := strings.Split(string(output), "\n")
+	var vmInfos []struct {
+		vmid   string
+		name   string
+		status string
+	}
+
+	// Parse VM list first
 	for i, line := range lines {
 		if i == 0 { // Skip header
 			continue
@@ -76,33 +130,60 @@ func (d *VMDiscovery) discoverQEMUVMs() ([]models.VM, error) {
 			continue
 		}
 
-		vmid := fields[0]
-		name := fields[1]
-		status := fields[2]
+		vmInfos = append(vmInfos, struct {
+			vmid   string
+			name   string
+			status string
+		}{
+			vmid:   fields[0],
+			name:   fields[1],
+			status: fields[2],
+		})
+	}
 
-		vm := models.VM{
-			ID:     vmid,
-			Name:   name,
+	if len(vmInfos) == 0 {
+		return []models.VM{}, nil
+	}
+
+	// Create VMs and get IPs in parallel
+	vms := make([]models.VM, len(vmInfos))
+	var wg sync.WaitGroup
+
+	for i, vmInfo := range vmInfos {
+		vms[i] = models.VM{
+			ID:     vmInfo.vmid,
+			Name:   vmInfo.name,
 			Type:   "qemu",
-			Status: status,
+			Status: vmInfo.status,
 			Source: "qm",
 		}
 
-		// Try to get IP from guest agent
-		if ip, err := d.getQEMUVMIP(vmid); err == nil && ip != "" {
-			vm.IP = ip
-			vm.Source = "agent"
+		// Get IP from guest agent in parallel for running VMs
+		if vmInfo.status == "running" {
+			wg.Add(1)
+			go func(index int, vmid string) {
+				defer wg.Done()
+				if ip, err := d.getQEMUVMIP(vmid); err == nil && ip != "" {
+					vms[index].IP = ip
+					vms[index].Source = "agent"
+				}
+			}(i, vmInfo.vmid)
 		}
-
-		vms = append(vms, vm)
 	}
 
+	wg.Wait()
 	return vms, nil
 }
 
-// getQEMUVMIP gets VM IP using QEMU guest agent
+// getQEMUVMIP gets VM IP using QEMU guest agent with timeout
 func (d *VMDiscovery) getQEMUVMIP(vmid string) (string, error) {
 	cmd := exec.Command("qm", "guest", "cmd", vmid, "network-get-interfaces")
+
+	// Create a context with timeout to prevent hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	cmd = exec.CommandContext(ctx, "qm", "guest", "cmd", vmid, "network-get-interfaces")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -141,10 +222,8 @@ func (d *VMDiscovery) getQEMUVMIP(vmid string) (string, error) {
 	return "", fmt.Errorf("no private IP found")
 }
 
-// discoverLXCContainers discovers LXC containers
+// discoverLXCContainers discovers LXC containers using parallel IP discovery
 func (d *VMDiscovery) discoverLXCContainers() ([]models.VM, error) {
-	var containers []models.VM
-
 	// Get list of containers
 	cmd := exec.Command("pct", "list")
 	output, err := cmd.Output()
@@ -153,6 +232,13 @@ func (d *VMDiscovery) discoverLXCContainers() ([]models.VM, error) {
 	}
 
 	lines := strings.Split(string(output), "\n")
+	var containerInfos []struct {
+		ctid   string
+		status string
+		name   string
+	}
+
+	// Parse container list first
 	for i, line := range lines {
 		if i == 0 { // Skip header
 			continue
@@ -170,7 +256,6 @@ func (d *VMDiscovery) discoverLXCContainers() ([]models.VM, error) {
 
 		ctid := fields[0]
 		status := fields[1]
-		// Skip Lock field (index 2) if present
 		name := ""
 		if len(fields) > 3 {
 			name = fields[3] // Name is at index 3 after VMID, Status, Lock
@@ -178,30 +263,58 @@ func (d *VMDiscovery) discoverLXCContainers() ([]models.VM, error) {
 			name = fields[2] // Name is at index 2 if no lock field
 		}
 
-		container := models.VM{
-			ID:     ctid,
-			Name:   name,
+		containerInfos = append(containerInfos, struct {
+			ctid   string
+			status string
+			name   string
+		}{
+			ctid:   ctid,
+			status: status,
+			name:   name,
+		})
+	}
+
+	if len(containerInfos) == 0 {
+		return []models.VM{}, nil
+	}
+
+	// Create containers and get IPs in parallel
+	containers := make([]models.VM, len(containerInfos))
+	var wg sync.WaitGroup
+
+	for i, ctInfo := range containerInfos {
+		containers[i] = models.VM{
+			ID:     ctInfo.ctid,
+			Name:   ctInfo.name,
 			Type:   "lxc",
-			Status: status,
+			Status: ctInfo.status,
 			Source: "pct",
 		}
 
-		// Try to get IP from container config
-		if ip, err := d.getLXCContainerIP(ctid); err == nil && ip != "" {
-			container.IP = ip
-			container.Source = "lxc"
+		// Get IP from container config in parallel for running containers
+		if ctInfo.status == "running" {
+			wg.Add(1)
+			go func(index int, ctid string) {
+				defer wg.Done()
+				if ip, err := d.getLXCContainerIP(ctid); err == nil && ip != "" {
+					containers[index].IP = ip
+					containers[index].Source = "lxc"
+				}
+			}(i, ctInfo.ctid)
 		}
-
-		containers = append(containers, container)
 	}
 
+	wg.Wait()
 	return containers, nil
 }
 
-// getLXCContainerIP gets container IP from configuration or runtime
+// getLXCContainerIP gets container IP from configuration or runtime with timeout
 func (d *VMDiscovery) getLXCContainerIP(ctid string) (string, error) {
-	// Try to get IP from runtime first
-	cmd := exec.Command("pct", "exec", ctid, "--", "ip", "addr", "show")
+	// Try to get IP from runtime first with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "pct", "exec", ctid, "--", "ip", "addr", "show")
 	if output, err := cmd.Output(); err == nil {
 		if ip := d.extractIPFromOutput(string(output)); ip != "" {
 			return ip, nil
@@ -441,9 +554,14 @@ func (d *VMDiscovery) GetVMByIP(ip string) (*models.VM, error) {
 	return nil, fmt.Errorf("VM with IP %s not found", ip)
 }
 
-// RefreshVMData forces a refresh of VM discovery data
+// RefreshVMData forces a refresh of VM discovery data by clearing cache
 func (d *VMDiscovery) RefreshVMData() ([]models.VM, error) {
-	// This method can implement caching logic in the future
+	// Clear cache to force fresh discovery
+	d.cache.mutex.Lock()
+	d.cache.vms = nil
+	d.cache.timestamp = time.Time{} // Zero time
+	d.cache.mutex.Unlock()
+
 	return d.DiscoverVMs()
 }
 

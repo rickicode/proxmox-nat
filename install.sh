@@ -77,7 +77,7 @@ check_requirements() {
 # Install dependencies
 install_dependencies() {
     print_status "Installing dependencies..."
-    
+
     apt update
     apt install -y \
         iptables \
@@ -89,8 +89,10 @@ install_dependencies() {
         iproute2 \
         bridge-utils \
         git \
-        build-essential
-    
+        build-essential \
+        vnstat \
+        bc
+
     print_success "Dependencies installed"
 }
 

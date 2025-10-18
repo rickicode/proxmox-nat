@@ -161,6 +161,24 @@ type NetworkTraffic struct {
 	PortUsage         map[string]int   `json:"port_usage"` // port -> connection count
 	TopPorts          []PortConnection `json:"top_ports"`  // top 5 ports by connections
 	Timestamp         time.Time        `json:"timestamp"`
+	// Formatted fields for frontend display
+	RXBytesFormatted  string `json:"rx_bytes_formatted"`
+	TXBytesFormatted  string `json:"tx_bytes_formatted"`
+	RXRateFormatted   string `json:"rx_rate_formatted"`
+	TXRateFormatted   string `json:"tx_rate_formatted"`
+	// Historical data (7 days)
+	DailyHistory      []DailyTraffic    `json:"daily_history"`
+}
+
+// DailyTraffic represents traffic data for a single day
+type DailyTraffic struct {
+	Date              string  `json:"date"`
+	RXBytes           int64   `json:"rx_bytes"`
+	TXBytes           int64   `json:"tx_bytes"`
+	RXBytesFormatted  string  `json:"rx_bytes_formatted"`
+	TXBytesFormatted  string  `json:"tx_bytes_formatted"`
+	IsToday           bool    `json:"is_today"`
+	IsYesterday       bool    `json:"is_yesterday"`
 }
 
 // PortConnection represents port usage information

@@ -4,7 +4,9 @@ class NetNATApp {
         this.csrfToken = null;
         this.currentRule = null;
         this.refreshInterval = null;
-        
+        this.vmCacheTimestamp = 0;
+        this.vmCacheTimeout = 30000; // 30 seconds cache
+
         this.init();
     }
 
@@ -45,7 +47,7 @@ class NetNATApp {
         document.getElementById('create-backup-btn').addEventListener('click', () => this.createBackup());
 
         // Network Traffic
-        document.getElementById('refresh-traffic-btn').addEventListener('click', () => this.refreshNetworkTraffic());
+        // Removed duplicate event listener - using onclick attribute in HTML
 
         // Quick Forward
         document.getElementById('createQuickForward').addEventListener('click', () => this.createQuickForward());
@@ -520,17 +522,32 @@ class NetNATApp {
         }
     }
 
-    // VMs Management
-    async loadVMs() {
+    // VMs Management with client-side caching optimization
+    async loadVMs(forceRefresh = false) {
+        const now = Date.now();
+        const isCacheValid = !forceRefresh && (now - this.vmCacheTimestamp) < this.vmCacheTimeout;
+
+        if (isCacheValid && this.cachedVMData) {
+            this.updateVMsTable(this.cachedVMData);
+            return;
+        }
+
         this.showLoading('vms');
         try {
-            const response = await this.makeRequest('/api/vms');
+            const url = forceRefresh ? '/api/vms/refresh' : '/api/vms';
+            const response = await this.makeRequest(url);
             if (response.success) {
+                this.cachedVMData = response.data;
+                this.vmCacheTimestamp = now;
                 this.updateVMsTable(response.data);
             }
         } catch (error) {
             console.error('Failed to load VMs:', error);
-            this.updateVMsTable([]);
+            if (this.cachedVMData) {
+                this.updateVMsTable(this.cachedVMData);
+            } else {
+                this.updateVMsTable([]);
+            }
         } finally {
             this.hideLoading('vms');
         }
@@ -586,10 +603,14 @@ class NetNATApp {
 
     async refreshVMs() {
         try {
+            // Clear client cache and force refresh
+            this.cachedVMData = null;
+            this.vmCacheTimestamp = 0;
+
             const response = await this.makeRequest('/api/vms/refresh', { method: 'POST' });
             if (response.success) {
                 this.showAlert('VM list refreshed', 'info');
-                this.loadVMs();
+                this.loadVMs(false); // Use cached data from server response
             }
         } catch (error) {
             console.error('Failed to refresh VMs:', error);
@@ -1194,16 +1215,20 @@ class NetNATApp {
 
     async refreshNetworkTraffic() {
         const btn = document.getElementById('refresh-traffic-btn');
+        if (!btn) return;
+
         const originalHTML = btn.innerHTML;
-        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refreshing...';
         btn.disabled = true;
 
         try {
             await this.loadNetworkTraffic();
             this.showAlert('Network traffic data refreshed', 'success', 2000);
         } catch (error) {
+            console.error('Error refreshing network traffic:', error);
             this.showAlert('Failed to refresh network data', 'danger');
         } finally {
+            // Restore original button text and icon
             btn.innerHTML = originalHTML;
             btn.disabled = false;
         }
@@ -1225,7 +1250,11 @@ class NetNATApp {
         }
 
         const traffic = data.total_traffic || {};
-        const formatBytes = (bytes) => {
+        const formatBytes = (bytes, formatted) => {
+            // Use formatted string if available (from vnstat), otherwise fallback to bytes formatting
+            if (formatted && formatted !== '') {
+                return formatted;
+            }
             if (bytes === 0) return '0 B';
             const k = 1024;
             const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -1233,7 +1262,11 @@ class NetNATApp {
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         };
 
-        const formatRate = (rate) => {
+        const formatRate = (rate, formatted) => {
+            // Use formatted string if available (from vnstat), otherwise fallback to rate formatting
+            if (formatted && formatted !== '') {
+                return formatted;
+            }
             if (rate === 0) return '0 B/s';
             const k = 1024;
             const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
@@ -1241,20 +1274,80 @@ class NetNATApp {
             return parseFloat((rate / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         };
 
-        container.innerHTML = `
+        // Format date for display
+const formatDate = (dateStr, isToday, isYesterday) => {
+    if (isToday) return `<span class="badge bg-success">Today</span>`;
+    if (isYesterday) return `<span class="badge bg-warning text-dark">Yesterday</span>`;
+
+    const date = new Date(dateStr);
+    const options = { weekday: 'short', month: 'short', day: 'numeric' };
+    return date.toLocaleDateString('en-US', options);
+};
+
+// Generate daily history HTML
+const generateDailyHistoryHTML = (dailyHistory) => {
+    if (!dailyHistory || dailyHistory.length === 0) {
+        return `
+            <div class="text-center text-muted py-3">
+                <i class="bi bi-calendar-x text-muted mb-2"></i>
+                <small>No historical data available</small>
+            </div>
+        `;
+    }
+
+    return `
+        <div class="table-responsive">
+            <table class="table table-sm table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th><i class="bi bi-calendar3 me-1"></i>Date</th>
+                        <th class="text-end"><i class="bi bi-arrow-down-circle me-1"></i>Received</th>
+                        <th class="text-end"><i class="bi bi-arrow-up-circle me-1"></i>Sent</th>
+                        <th class="text-end"><i class="bi bi-speedometer2 me-1"></i>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${dailyHistory.map(day => {
+                        const totalBytes = (day.rx_bytes || 0) + (day.tx_bytes || 0);
+                        const totalFormatted = formatBytes(totalBytes, '');
+                        return `
+                            <tr>
+                                <td>
+                                    ${formatDate(day.date, day.is_today, day.is_yesterday)}
+                                    <div class="small text-muted">${day.date}</div>
+                                </td>
+                                <td class="text-end">
+                                    <span class="fw-bold text-primary">${day.rx_bytes_formatted || '0 B'}</span>
+                                </td>
+                                <td class="text-end">
+                                    <span class="fw-bold text-success">${day.tx_bytes_formatted || '0 B'}</span>
+                                </td>
+                                <td class="text-end">
+                                    <span class="fw-bold text-info">${totalFormatted}</span>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+};
+
+container.innerHTML = `
             <!-- Traffic Overview -->
-            <div class="row g-3 mb-3">
+            <div class="row g-3 mb-4">
                 <div class="col-md-3">
                     <div class="text-center p-3 bg-primary bg-opacity-10 rounded">
                         <i class="bi bi-arrow-down-circle text-primary fs-4 mb-2"></i>
-                        <div class="fw-bold text-primary">${formatBytes(traffic.rx_bytes || 0)}</div>
+                        <div class="fw-bold text-primary">${formatBytes(traffic.rx_bytes || 0, traffic.rx_bytes_formatted || '')}</div>
                         <small class="text-primary">Received</small>
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="text-center p-3 bg-success bg-opacity-10 rounded">
                         <i class="bi bi-arrow-up-circle text-success fs-4 mb-2"></i>
-                        <div class="fw-bold text-success">${formatBytes(traffic.tx_bytes || 0)}</div>
+                        <div class="fw-bold text-success">${formatBytes(traffic.tx_bytes || 0, traffic.tx_bytes_formatted || '')}</div>
                         <small class="text-success">Sent</small>
                     </div>
                 </div>
@@ -1274,19 +1367,92 @@ class NetNATApp {
                 </div>
             </div>
 
+            <!-- 7-Day Traffic History -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <h6 class="mb-0">
+                        <i class="bi bi-graph-up me-2"></i>
+                        <strong>7-Day Traffic History</strong>
+                        <small class="text-muted ms-2">Data from vnstat</small>
+                    </h6>
+                </div>
+                <div class="card-body p-3">
+                    ${generateDailyHistoryHTML(traffic.daily_history)}
+                </div>
+            </div>
+
             <!-- Top Ports -->
             ${traffic.top_ports && traffic.top_ports.length > 0 ? `
-                <div class="mb-3">
-                    <small class="text-muted fw-bold d-block mb-2"><i class="bi bi-list-ol me-1"></i>TOP LISTENING PORTS</small>
-                    <div class="d-flex flex-wrap gap-2">
-                        ${traffic.top_ports.slice(0, 4).map((port, index) => `
-                            <div class="badge bg-light text-dark border px-2 py-1">
-                                <small class="fw-bold">${index + 1}.</small> ${port.protocol.toUpperCase()} ${port.port}
-                            </div>
-                        `).join('')}
+                <div class="card mb-3">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0">
+                            <i class="bi bi-list-ol me-2"></i>
+                            <strong>Top Listening Ports</strong>
+                            <small class="text-muted ms-2">With Process Information</small>
+                        </h6>
+                    </div>
+                    <div class="card-body p-3">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th><i class="bi bi-hash me-1"></i>Port</th>
+                                        <th><i class="bi bi-ethernet me-1"></i>Protocol</th>
+                                        <th><i class="bi bi-info-circle me-1"></i>Service/Program</th>
+                                        <th><i class="bi bi-cpu me-1"></i>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${traffic.top_ports.slice(0, 8).map((port, index) => {
+                                        const isCommonPort = ['22', '80', '443', '53', '3306', '5432', '6379', '27017'].includes(port.port);
+                                        const statusColor = isCommonPort ? 'success' : 'primary';
+                                        return `
+                                            <tr>
+                                                <td>
+                                                    <span class="fw-bold">${port.port}</span>
+                                                </td>
+                                                <td>
+                                                    <span class="badge bg-secondary">${port.protocol.toUpperCase()}</span>
+                                                </td>
+                                                <td>
+                                                    <div class="fw-bold">${port.description}</div>
+                                                    ${port.port === '22' ? '<small class="text-muted">Secure Shell Access</small>' : ''}
+                                                    ${port.port === '80' ? '<small class="text-muted">Web Server HTTP</small>' : ''}
+                                                    ${port.port === '443' ? '<small class="text-muted">Web Server HTTPS</small>' : ''}
+                                                    ${port.port === '53' ? '<small class="text-muted">DNS Server</small>' : ''}
+                                                    ${port.port === '3306' ? '<small class="text-muted">MySQL Database</small>' : ''}
+                                                    ${port.port === '5432' ? '<small class="text-muted">PostgreSQL Database</small>' : ''}
+                                                    ${port.port === '6379' ? '<small class="text-muted">Redis Cache</small>' : ''}
+                                                    ${port.port === '27017' ? '<small class="text-muted">MongoDB Database</small>' : ''}
+                                                </td>
+                                                <td>
+                                                    <span class="badge bg-${statusColor}">
+                                                        <i class="bi bi-check-circle me-1"></i>Listening
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="mt-2 text-end">
+                            <small class="text-muted">
+                                <i class="bi bi-info-circle me-1"></i>
+                                Port information obtained from ss/netstat with process details
+                            </small>
+                        </div>
                     </div>
                 </div>
-            ` : ''}
+            ` : `
+                <div class="card mb-3">
+                    <div class="card-body text-center py-4">
+                        <i class="bi bi-x-circle text-muted mb-2" style="font-size: 2rem;"></i>
+                        <div class="text-muted">No listening ports detected</div>
+                        <small class="text-muted">No active services found</small>
+                    </div>
+                </div>
+            `}
 
             <!-- Last Updated -->
             <div class="text-end pt-2 border-top">

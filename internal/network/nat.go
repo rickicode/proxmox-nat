@@ -1,6 +1,7 @@
 package network
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -31,11 +32,18 @@ func New(config *models.Config) (*Manager, error) {
 
 	fmt.Printf("Detected public interface: %s\n", publicInterface)
 
-	return &Manager{
+	manager := &Manager{
 		config:            config,
 		interfaceDetector: detector,
 		publicInterface:   publicInterface,
-	}, nil
+	}
+
+	// Configure vnstat for traffic monitoring
+	if err := manager.configureVnstat(publicInterface); err != nil {
+		fmt.Printf("Warning: Failed to configure vnstat: %v\n", err)
+	}
+
+	return manager, nil
 }
 
 // EnableIPForwarding enables IPv4 forwarding
@@ -554,9 +562,14 @@ func (m *Manager) GetNetworkTraffic() (*models.NetworkStats, error) {
 	return stats, nil
 }
 
-// getInterfaceTraffic gets traffic statistics for a specific interface
+// getInterfaceTraffic gets traffic statistics for a specific interface using vnstat
 func (m *Manager) getInterfaceTraffic(iface string) (*models.NetworkTraffic, error) {
-	// Use /proc/net/dev for traffic statistics
+	// Try vnstat first for permanent traffic data
+	if traffic, err := m.getVnstatTraffic(iface); err == nil {
+		return traffic, nil
+	}
+
+	// Fallback to /proc/net/dev for real-time statistics
 	data, err := os.ReadFile("/proc/net/dev")
 	if err != nil {
 		return nil, err
@@ -585,12 +598,293 @@ func (m *Manager) getInterfaceTraffic(iface string) (*models.NetworkTraffic, err
 					Timestamp: time.Now(),
 				}
 
+				// Format traffic data for display
+				traffic.RXBytesFormatted = m.formatBytes(traffic.RXBytes)
+				traffic.TXBytesFormatted = m.formatBytes(traffic.TXBytes)
+				traffic.RXRateFormatted = m.formatRate(traffic.RXRate)
+				traffic.TXRateFormatted = m.formatRate(traffic.TXRate)
+
 				return traffic, nil
 			}
 		}
 	}
 
 	return nil, fmt.Errorf("interface %s not found in /proc/net/dev", iface)
+}
+
+// getVnstatTraffic gets permanent traffic data from vnstat
+func (m *Manager) getVnstatTraffic(iface string) (*models.NetworkTraffic, error) {
+	// Use vnstat to get monthly traffic data
+	cmd := exec.Command("vnstat", "-i", iface, "--json", "m")
+	output, err := cmd.Output()
+	if err != nil {
+		// Interface might not be monitored, try to add it
+		addCmd := exec.Command("vnstat", "-i", iface, "--create")
+		addCmd.Run()
+
+		// Try again
+		cmd = exec.Command("vnstat", "-i", iface, "--json", "m")
+		output, err = cmd.Output()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Parse vnstat JSON output
+	var vnstatData map[string]interface{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(output))), &vnstatData); err != nil {
+		return nil, err
+	}
+
+	traffic := &models.NetworkTraffic{
+		Interface: iface,
+		Timestamp: time.Now(),
+	}
+
+	// Extract monthly data
+	if interfaces, ok := vnstatData["interfaces"].([]interface{}); ok && len(interfaces) > 0 {
+		if ifaceData, ok := interfaces[0].(map[string]interface{}); ok {
+			if trafficData, ok := ifaceData["traffic"].(map[string]interface{}); ok {
+				// Try monthly data first
+				if monthArray, ok := trafficData["month"].([]interface{}); ok && len(monthArray) > 0 {
+					if latestMonth, ok := monthArray[0].(map[string]interface{}); ok {
+						if rx, ok := latestMonth["rx"].(float64); ok {
+							traffic.RXBytes = int64(rx) // Data is already in bytes
+						}
+						if tx, ok := latestMonth["tx"].(float64); ok {
+							traffic.TXBytes = int64(tx) // Data is already in bytes
+						}
+					}
+				}
+
+				// Get daily average for rate calculation
+				if dayArray, ok := trafficData["day"].([]interface{}); ok && len(dayArray) > 0 {
+					if latestDay, ok := dayArray[0].(map[string]interface{}); ok {
+						if rx, ok := latestDay["rx"].(float64); ok {
+							traffic.RXRate = (rx * 1024 * 1024) / 86400 // MB/day to bytes/sec
+						}
+						if tx, ok := latestDay["tx"].(float64); ok {
+							traffic.TXRate = (tx * 1024 * 1024) / 86400 // MB/day to bytes/sec
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// If vnstat returned zero data, try to get current session data
+	if traffic.RXBytes == 0 && traffic.TXBytes == 0 {
+		cmd = exec.Command("vnstat", "-i", iface, "--json", "h")
+		output, err := cmd.Output()
+		if err == nil {
+			var hourData map[string]interface{}
+			if json.Unmarshal([]byte(strings.TrimSpace(string(output))), &hourData) == nil {
+				if interfaces, ok := hourData["interfaces"].([]interface{}); ok && len(interfaces) > 0 {
+					if ifaceData, ok := interfaces[0].(map[string]interface{}); ok {
+						if trafficData, ok := ifaceData["traffic"].(map[string]interface{}); ok {
+							if hourArray, ok := trafficData["hour"].([]interface{}); ok && len(hourArray) > 0 {
+								if latestHour, ok := hourArray[0].(map[string]interface{}); ok {
+									if rx, ok := latestHour["rx"].(float64); ok {
+										traffic.RXBytes = int64(rx) // Data is already in bytes
+									}
+									if tx, ok := latestHour["tx"].(float64); ok {
+										traffic.TXBytes = int64(tx) // Data is already in bytes
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Format traffic data for display
+	traffic.RXBytesFormatted = m.formatBytes(traffic.RXBytes)
+	traffic.TXBytesFormatted = m.formatBytes(traffic.TXBytes)
+	traffic.RXRateFormatted = m.formatRate(traffic.RXRate)
+	traffic.TXRateFormatted = m.formatRate(traffic.TXRate)
+
+	// Get daily history for the last 7 days
+	dailyHistory, err := m.getDailyHistory(iface)
+	if err == nil {
+		traffic.DailyHistory = dailyHistory
+	}
+
+	return traffic, nil
+}
+
+// formatBytes formats bytes to human readable string
+func (m *Manager) formatBytes(bytes int64) string {
+	if bytes == 0 {
+		return "0 B"
+	}
+
+	const unit = 1024
+	units := []string{"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
+
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+
+	exp := 0
+	value := float64(bytes)
+	for value >= unit && exp < len(units)-1 {
+		value /= unit
+		exp++
+	}
+
+	return fmt.Sprintf("%.1f %s", value, units[exp])
+}
+
+// formatRate formats bytes per second to human readable string
+func (m *Manager) formatRate(bytesPerSec float64) string {
+	if bytesPerSec == 0 {
+		return "0 B/s"
+	}
+
+	const unit = 1024
+	units := []string{"B/s", "KiB/s", "MiB/s", "GiB/s", "TiB/s", "PiB/s"}
+
+	if bytesPerSec < unit {
+		return fmt.Sprintf("%.1f B/s", bytesPerSec)
+	}
+
+	exp := 0
+	value := bytesPerSec
+	for value >= unit && exp < len(units)-1 {
+		value /= unit
+		exp++
+	}
+
+	return fmt.Sprintf("%.1f %s", value, units[exp])
+}
+
+// getDailyHistory gets daily traffic history for the last 7 days
+func (m *Manager) getDailyHistory(iface string) ([]models.DailyTraffic, error) {
+	// Use vnstat to get daily data for the last 7 days
+	cmd := exec.Command("vnstat", "-i", iface, "--json", "d")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse vnstat JSON output
+	var vnstatData map[string]interface{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(output))), &vnstatData); err != nil {
+		return nil, err
+	}
+
+	var dailyHistory []models.DailyTraffic
+	now := time.Now()
+	today := now.Format("2006-01-02")
+	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+
+	if interfaces, ok := vnstatData["interfaces"].([]interface{}); ok && len(interfaces) > 0 {
+		if ifaceData, ok := interfaces[0].(map[string]interface{}); ok {
+			if trafficData, ok := ifaceData["traffic"].(map[string]interface{}); ok {
+				if dayArray, ok := trafficData["day"].([]interface{}); ok {
+					// Get last 7 days (or all available if less than 7)
+					daysToShow := len(dayArray)
+					if daysToShow > 7 {
+						daysToShow = 7
+					}
+
+					// Start from the most recent (end of array)
+					for i := daysToShow - 1; i >= 0 && len(dailyHistory) < 7; i-- {
+						if dayData, ok := dayArray[i].(map[string]interface{}); ok {
+							if dateObj, ok := dayData["date"].(map[string]interface{}); ok {
+								if year, ok := dateObj["year"].(float64); ok {
+									if month, ok := dateObj["month"].(float64); ok {
+										if day, ok := dateObj["day"].(float64); ok {
+											dateStr := fmt.Sprintf("%04d-%02d-%02d",
+												int(year), int(month), int(day))
+
+											rxBytes := int64(0)
+											txBytes := int64(0)
+
+											if rx, ok := dayData["rx"].(float64); ok {
+												rxBytes = int64(rx) // Data is already in bytes
+											}
+											if tx, ok := dayData["tx"].(float64); ok {
+												txBytes = int64(tx) // Data is already in bytes
+											}
+
+											daily := models.DailyTraffic{
+												Date:              dateStr,
+												RXBytes:           rxBytes,
+												TXBytes:           txBytes,
+												RXBytesFormatted:  m.formatBytes(rxBytes),
+												TXBytesFormatted:  m.formatBytes(txBytes),
+												IsToday:           dateStr == today,
+												IsYesterday:       dateStr == yesterday,
+											}
+
+											dailyHistory = append(dailyHistory, daily)
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// If we have no data, create empty entries for the last 7 days
+	if len(dailyHistory) == 0 {
+		for i := 6; i >= 0; i-- {
+			date := now.AddDate(0, 0, -i).Format("2006-01-02")
+			daily := models.DailyTraffic{
+				Date:              date,
+				RXBytes:           0,
+				TXBytes:           0,
+				RXBytesFormatted:  "0 B",
+				TXBytesFormatted:  "0 B",
+				IsToday:           date == today,
+				IsYesterday:       date == yesterday,
+			}
+			dailyHistory = append(dailyHistory, daily)
+		}
+	}
+
+	return dailyHistory, nil
+}
+
+// configureVnstat configures vnstat to monitor interface and save statistics
+func (m *Manager) configureVnstat(iface string) error {
+	// Check if vnstat is installed
+	if _, err := exec.LookPath("vnstat"); err != nil {
+		return fmt.Errorf("vnstat is not installed")
+	}
+
+	// Create database for interface if it doesn't exist
+	createCmd := exec.Command("vnstat", "-i", iface, "--create")
+	if err := createCmd.Run(); err != nil {
+		// Ignore if database already exists
+	}
+
+	// Set vnstat to save data every 5 minutes
+	// First, try to update vnstat.conf
+	configFile := "/etc/vnstat.conf"
+	if _, err := os.Stat(configFile); err == nil {
+		// Update configuration to save data more frequently
+		updateCmd := exec.Command("sed", "-i", "s/^SaveInterval.*/SaveInterval 5/", configFile)
+		updateCmd.Run() // Ignore errors
+
+		updateCmd = exec.Command("sed", "-i", "s/^DatabaseDir.*/DatabaseDir \\/var\\/lib\\/vnstat/", configFile)
+		updateCmd.Run() // Ignore errors
+	}
+
+	// Ensure vnstat service is enabled and running
+	serviceCmd := exec.Command("systemctl", "enable", "vnstat")
+	serviceCmd.Run() // Ignore errors
+
+	serviceCmd = exec.Command("systemctl", "restart", "vnstat")
+	serviceCmd.Run() // Ignore errors
+
+	return nil
 }
 
 // getActiveConnections gets the count of active network connections
@@ -622,20 +916,25 @@ func (m *Manager) getActiveConnections() (int, error) {
 	return count, nil
 }
 
-// getPortUsage gets port usage statistics
+// getPortUsage gets port usage statistics with program information
 func (m *Manager) getPortUsage() (map[string]int, []models.PortConnection, error) {
 	portUsage := make(map[string]int)
 	var topPorts []models.PortConnection
 
-	// Use ss to get listening ports
-	cmd := exec.Command("ss", "-tuln")
+	// Use ss to get listening ports with process information
+	cmd := exec.Command("ss", "-tulnp")
 	output, err := cmd.Output()
 	if err != nil {
-		// Fallback to netstat
-		cmd = exec.Command("netstat", "-tuln")
+		// Fallback to netstat with process info
+		cmd = exec.Command("netstat", "-tulnp")
 		output, err = cmd.Output()
 		if err != nil {
-			return portUsage, topPorts, err
+			// Final fallback to netstat without process info
+			cmd = exec.Command("netstat", "-tuln")
+			output, err = cmd.Output()
+			if err != nil {
+				return portUsage, topPorts, err
+			}
 		}
 	}
 
@@ -661,14 +960,75 @@ func (m *Manager) getPortUsage() (map[string]int, []models.PortConnection, error
 						// Add to top ports if listening
 						if strings.Contains(line, "LISTEN") {
 							description := "Listening port"
+							program := ""
+
+							// Extract program/process information
+							if len(fields) > 6 {
+								// ss format: ... "users":(("sshd",pid=1234,fd=3))
+								processInfo := strings.Join(fields[6:], " ")
+
+								// Extract program name from process info
+								if strings.Contains(processInfo, "users:") {
+									start := strings.Index(processInfo, "(\"")
+									end := strings.Index(processInfo, "\",pid=")
+									if start != -1 && end != -1 {
+										program = processInfo[start+2 : end]
+									}
+								} else if strings.Contains(processInfo, "/") {
+									// netstat format: ... sshd/1234
+									parts := strings.Split(processInfo, "/")
+									if len(parts) > 0 {
+										program = parts[0]
+									}
+								}
+							}
+
+							// Set description based on port and program
 							if port == "22" {
 								description = "SSH"
+								if program == "" || program == "-" {
+									program = "sshd"
+								}
 							} else if port == "80" {
 								description = "HTTP"
+								if program == "" || program == "-" {
+									program = "nginx/apache"
+								}
 							} else if port == "443" {
 								description = "HTTPS"
+								if program == "" || program == "-" {
+									program = "nginx/apache"
+								}
 							} else if port == "53" {
 								description = "DNS"
+								if program == "" || program == "-" {
+									program = "named/dnsmasq"
+								}
+							} else if port == "3306" {
+								description = "MySQL/MariaDB"
+								if program == "" || program == "-" {
+									program = "mysqld"
+								}
+							} else if port == "5432" {
+								description = "PostgreSQL"
+								if program == "" || program == "-" {
+									program = "postgres"
+								}
+							} else if port == "6379" {
+								description = "Redis"
+								if program == "" || program == "-" {
+									program = "redis-server"
+								}
+							} else if port == "27017" {
+								description = "MongoDB"
+								if program == "" || program == "-" {
+									program = "mongod"
+								}
+							} else {
+								// For other ports, use program if available
+								if program != "" && program != "-" {
+									description = program
+								}
 							}
 
 							topPorts = append(topPorts, models.PortConnection{
@@ -684,12 +1044,27 @@ func (m *Manager) getPortUsage() (map[string]int, []models.PortConnection, error
 		}
 	}
 
-	// Sort top ports by port number and limit to top 5
-	if len(topPorts) > 5 {
-		topPorts = topPorts[:5]
+	// Remove duplicates and sort by port number
+	portMap := make(map[string]models.PortConnection)
+	for _, port := range topPorts {
+		key := fmt.Sprintf("%s:%s", port.Protocol, port.Port)
+		if _, exists := portMap[key]; !exists {
+			portMap[key] = port
+		}
 	}
 
-	return portUsage, topPorts, nil
+	// Convert back to slice and sort
+	var result []models.PortConnection
+	for _, port := range portMap {
+		result = append(result, port)
+	}
+
+	// Sort by port number and limit to top 8 (increased from 5)
+	if len(result) > 8 {
+		result = result[:8]
+	}
+
+	return portUsage, result, nil
 }
 
 // parseInt64 safely parses string to int64
