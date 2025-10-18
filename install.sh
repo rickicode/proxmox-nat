@@ -26,16 +26,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Parse command line arguments
 FRESH_INSTALL=false
 NON_INTERACTIVE=false
+COMMAND="install"
 
-for arg in "$@"; do
-    case $arg in
+# Separate command from options
+args=("$@")
+i=0
+while [ $i -lt $# ]; do
+    case "${args[$i]}" in
         --fresh-install)
             FRESH_INSTALL=true
             ;;
         --non-interactive)
             NON_INTERACTIVE=true
             ;;
+        install|update|uninstall|version|help|--help|-h)
+            COMMAND="${args[$i]}"
+            ;;
     esac
+    ((i++))
 done
 
 # Global variables for network detection
@@ -910,7 +918,7 @@ main() {
     echo "================================================"
     echo ""
 
-    case "${1:-install}" in
+    case "$COMMAND" in
         "install")
             check_root
             check_requirements
