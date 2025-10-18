@@ -21,7 +21,7 @@ SERVICE_NAME="netnat"
 GITHUB_REPO="https://github.com/rickicode/proxmox-nat"
 
 # Get script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Parse command line arguments
 FRESH_INSTALL=false
