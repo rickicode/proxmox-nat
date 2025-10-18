@@ -66,8 +66,7 @@ class NetNATApp {
 
     setupEventListeners() {
         // Quick Actions
-        document.getElementById('enable-nat').addEventListener('click', () => this.enableNAT());
-        document.getElementById('disable-nat').addEventListener('click', () => this.disableNAT());
+        document.getElementById('toggle-nat').addEventListener('click', () => this.toggleNAT());
         document.getElementById('refresh-vms').addEventListener('click', () => this.refreshVMs());
         document.getElementById('backup-now').addEventListener('click', () => this.createBackup());
 
@@ -257,14 +256,14 @@ class NetNATApp {
 
     updateSystemStatus(status) {
         // Update status badges
-        document.getElementById('nat-status').className = 
+        document.getElementById('nat-status').className =
             `badge ${status.nat_enabled ? 'bg-success' : 'bg-danger'}`;
-        document.getElementById('nat-status').textContent = 
+        document.getElementById('nat-status').textContent =
             status.nat_enabled ? 'Enabled' : 'Disabled';
 
-        document.getElementById('forward-status').className = 
+        document.getElementById('forward-status').className =
             `badge ${status.ip_forward_enabled ? 'bg-success' : 'bg-danger'}`;
-        document.getElementById('forward-status').textContent = 
+        document.getElementById('forward-status').textContent =
             status.ip_forward_enabled ? 'Enabled' : 'Disabled';
 
         document.getElementById('active-rules').textContent = status.active_rules || 0;
@@ -272,6 +271,9 @@ class NetNATApp {
 
         document.getElementById('public-interface').textContent = status.public_interface || '-';
         document.getElementById('internal-bridge').textContent = status.internal_bridge || '-';
+
+        // Update NAT toggle button based on current status
+        this.updateNATToggleButton(status.nat_enabled ? 'enabled' : 'disabled');
 
         // Update dashboard summary
         this.updateDashboard();
@@ -290,19 +292,71 @@ class NetNATApp {
         }
     }
 
-    async disableNAT() {
-        if (!confirm('Are you sure you want to disable NAT? This will stop all port forwarding.')) {
-            return;
+    async toggleNAT() {
+        // Get current NAT status
+        const natStatusEl = document.getElementById('nat-status');
+        const currentStatus = natStatusEl ? natStatusEl.textContent.toLowerCase() : 'unknown';
+
+        // Determine action based on current status
+        const isCurrentlyEnabled = currentStatus === 'enabled';
+        const action = isCurrentlyEnabled ? 'disable' : 'enable';
+
+        // Show confirmation for disabling NAT (important operation)
+        if (action === 'disable') {
+            if (!confirm('Are you sure you want to disable NAT? This will stop all port forwarding rules.')) {
+                return;
+            }
         }
-        
+
+        // Update button state immediately for better UX
+        this.updateNATToggleButton('loading');
+
         try {
-            const response = await this.makeRequest('/api/nat/disable', { method: 'POST' });
+            const endpoint = action === 'enable' ? '/api/nat/enable' : '/api/nat/disable';
+            const response = await this.makeRequest(endpoint, { method: 'POST' });
+
             if (response.success) {
-                this.showAlert(response.message, 'warning');
-                this.loadSystemStatus();
+                const alertType = action === 'enable' ? 'success' : 'warning';
+                this.showAlert(response.message, alertType);
+                this.loadSystemStatus(); // Reload status to update all UI elements
+            } else {
+                throw new Error(response.error || 'Failed to toggle NAT');
             }
         } catch (error) {
-            console.error('Failed to disable NAT:', error);
+            console.error(`Failed to ${action} NAT:`, error);
+            this.showAlert(`Failed to ${action} NAT: ${error.message}`, 'danger');
+            // Revert button state on error
+            this.updateNATToggleButton(isCurrentlyEnabled ? 'enabled' : 'disabled');
+        }
+    }
+
+    updateNATToggleButton(status) {
+        const button = document.getElementById('toggle-nat');
+        const buttonText = document.getElementById('toggle-nat-text');
+        const icon = button.querySelector('i');
+
+        if (!button || !buttonText || !icon) return;
+
+        switch (status) {
+            case 'enabled':
+                button.className = 'btn btn-warning btn-sm';
+                icon.className = 'bi bi-toggle-off me-1';
+                buttonText.textContent = 'Disable NAT';
+                button.disabled = false;
+                break;
+            case 'disabled':
+            case 'unknown':
+                button.className = 'btn btn-success btn-sm';
+                icon.className = 'bi bi-toggle-on me-1';
+                buttonText.textContent = 'Enable NAT';
+                button.disabled = false;
+                break;
+            case 'loading':
+                button.className = 'btn btn-secondary btn-sm';
+                icon.className = 'bi bi-arrow-clockwise me-1 spin';
+                buttonText.textContent = 'Processing...';
+                button.disabled = true;
+                break;
         }
     }
 

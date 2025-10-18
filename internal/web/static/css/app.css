@@ -1436,3 +1436,17 @@ button.btn[class*="outline"]:hover i {
     background-color: var(--dark-bg-tertiary) !important;
     color: var(--dark-text-primary) !important;
 }
+
+/* Loading spinner animation */
+.spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
