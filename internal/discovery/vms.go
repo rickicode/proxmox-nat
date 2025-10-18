@@ -177,22 +177,61 @@ func (d *VMDiscovery) discoverQEMUVMs() ([]models.VM, error) {
 
 // getQEMUVMIP gets VM IP using QEMU guest agent with timeout
 func (d *VMDiscovery) getQEMUVMIP(vmid string) (string, error) {
-	cmd := exec.Command("qm", "guest", "cmd", vmid, "network-get-interfaces")
+	// First check if guest agent is enabled and running
+	checkCmd := exec.Command("qm", "guest", "exec", vmid, "test", "echo", "test")
+	if output, err := checkCmd.CombinedOutput(); err != nil {
+		// Guest agent might not be running or not enabled
+		fmt.Printf("VM %s: Guest agent not available: %v (output: %s)\n", vmid, err, string(output))
 
-	// Create a context with timeout to prevent hanging
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		// Try alternative check methods
+		if d.checkGuestAgentAlternative(vmid) {
+			fmt.Printf("VM %s: Guest agent available via alternative check\n", vmid)
+		} else {
+			return "", fmt.Errorf("guest agent not available")
+		}
+	}
+
+	// Try to get IP address using fence agent first (more reliable)
+	cmd := exec.Command("qm", "fence", "ack", vmid)
+	if output, err := cmd.Output(); err == nil {
+		if ip := d.extractIPFromOutput(string(output)); ip != "" {
+			return ip, nil
+		}
+	}
+
+	// Try multiple methods to get IP address
+
+	// Method 1: network-get-interfaces (most reliable)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	cmd = exec.CommandContext(ctx, "qm", "guest", "cmd", vmid, "network-get-interfaces")
 	output, err := cmd.Output()
-	if err != nil {
-		return "", err
+	if err == nil {
+		if ip := d.parseGuestAgentInterfaces(output); ip != "" {
+			return ip, nil
+		}
 	}
 
+	// Method 2: Get IP from arp-scan of VM
+	if ip := d.getVMIPFromARP(vmid); ip != "" {
+		return ip, nil
+	}
+
+	// Method 3: Try to ping common VM names
+	if ip := d.getVMIPFromProxmoxConfig(vmid); ip != "" {
+		return ip, nil
+	}
+
+	return "", fmt.Errorf("no IP found for VM %s", vmid)
+}
+
+// parseGuestAgentInterfaces parses network-get-interfaces JSON output
+func (d *VMDiscovery) parseGuestAgentInterfaces(output []byte) string {
 	// Parse JSON output from guest agent
 	var interfaces map[string]interface{}
 	if err := json.Unmarshal(output, &interfaces); err != nil {
-		return "", err
+		return ""
 	}
 
 	// Look for non-loopback interfaces with IP addresses
@@ -205,9 +244,10 @@ func (d *VMDiscovery) getQEMUVMIP(vmid string) (string, error) {
 							if addrMap, ok := addr.(map[string]interface{}); ok {
 								if ipType, ok := addrMap["ip-address-type"].(string); ok && ipType == "ipv4" {
 									if ip, ok := addrMap["ip-address"].(string); ok {
-										// Check if IP is in private range
-										if d.isPrivateIP(ip) {
-											return ip, nil
+										// Check if IP is in private range and not localhost
+										if d.isPrivateIP(ip) && ip != "127.0.0.1" {
+											fmt.Printf("Found IP %s for interface %s via guest agent\n", ip, name)
+											return ip
 										}
 									}
 								}
@@ -219,7 +259,122 @@ func (d *VMDiscovery) getQEMUVMIP(vmid string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("no private IP found")
+	return ""
+}
+
+// getVMIPFromARP tries to find VM IP by looking at recent ARP entries
+func (d *VMDiscovery) getVMIPFromARP(vmid string) string {
+	// Get VM config to find MAC address
+	cmd := exec.Command("qm", "config", vmid)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	// Extract MAC address from VM config
+	lines := strings.Split(string(output), "\n")
+	var macAddr string
+	for _, line := range lines {
+		if strings.HasPrefix(line, "net0:") && strings.Contains(line, "hwaddr=") {
+			re := regexp.MustCompile(`hwaddr=([a-fA-F0-9:]+)`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				macAddr = matches[1]
+				break
+			}
+		}
+	}
+
+	if macAddr == "" {
+		return ""
+	}
+
+	// Look for this MAC in ARP table
+	arpCmd := exec.Command("arp", "-a")
+	arpOutput, err := arpCmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	lines = strings.Split(string(arpOutput), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, strings.ToLower(macAddr)) || strings.Contains(line, strings.ToUpper(macAddr)) {
+			// Parse IP from ARP entry
+			re := regexp.MustCompile(`\(([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\)`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				ip := matches[1]
+				if d.isPrivateIP(ip) {
+					fmt.Printf("Found IP %s for VM %s via ARP (MAC: %s)\n", ip, vmid, macAddr)
+					return ip
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// getVMIPFromProxmoxConfig tries to get IP from Proxmox VM config
+func (d *VMDiscovery) getVMIPFromProxmoxConfig(vmid string) string {
+	// Check if VM has IP set in config
+	cmd := exec.Command("qm", "config", vmid)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "ipconfig") && strings.Contains(line, "ip=") {
+			// Extract IP from config like: ipconfig0: ip=192.168.1.100/24
+			re := regexp.MustCompile(`ip=([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)`)
+			matches := re.FindStringSubmatch(line)
+			if len(matches) > 1 {
+				ip := matches[1]
+				if d.isPrivateIP(ip) {
+					fmt.Printf("Found IP %s for VM %s from Proxmox config\n", ip, vmid)
+					return ip
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// checkGuestAgentAlternative tries alternative methods to check if guest agent is available
+func (d *VMDiscovery) checkGuestAgentAlternative(vmid string) bool {
+	// Method 1: Try qm guest ping
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "qm", "guest", "ping", vmid)
+	if _, err := cmd.Output(); err == nil {
+		return true
+	}
+
+	// Method 2: Try qm guest cmd with simpler command
+	cmd = exec.Command("qm", "guest", "cmd", vmid, "ping")
+	if _, err := cmd.Output(); err == nil {
+		return true
+	}
+
+	// Method 3: Check VM config for guest agent enabled
+	configCmd := exec.Command("qm", "config", vmid)
+	output, err := configCmd.Output()
+	if err != nil {
+		return false
+	}
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "agent:") && strings.Contains(line, "1") {
+			return true // Guest agent is enabled in config
+		}
+	}
+
+	return false
 }
 
 // discoverLXCContainers discovers LXC containers using parallel IP discovery
