@@ -17,23 +17,23 @@ import (
 // VMDiscovery handles VM and container discovery
 type VMDiscovery struct {
 	bridgeInterface string
-	cache          *VMCache
-	cacheTimeout   time.Duration
+	cache           *VMCache
+	cacheTimeout    time.Duration
 }
 
 // VMCache stores cached VM data with timestamps
 type VMCache struct {
-	vms      []models.VM
+	vms       []models.VM
 	timestamp time.Time
-	mutex    sync.RWMutex
+	mutex     sync.RWMutex
 }
 
 // New creates a new VM discovery instance
 func New(bridgeInterface string) *VMDiscovery {
 	return &VMDiscovery{
 		bridgeInterface: bridgeInterface,
-		cache:          &VMCache{},
-		cacheTimeout:   60 * time.Second, // Cache for 60 seconds
+		cache:           &VMCache{},
+		cacheTimeout:    60 * time.Second, // Cache for 60 seconds
 	}
 }
 

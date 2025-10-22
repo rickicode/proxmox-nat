@@ -624,18 +624,42 @@ class NetNATApp {
 
         this.showLoading('vms');
         try {
-            const url = forceRefresh ? '/api/vms/refresh' : '/api/vms';
-            const response = await this.makeRequest(url);
+            let response;
+            if (forceRefresh) {
+                // Force refresh requires POST request to /api/vms/refresh
+                response = await this.makeRequest('/api/vms/refresh', { method: 'POST' });
+            } else {
+                // Normal load uses GET request to /api/vms
+                response = await this.makeRequest('/api/vms');
+            }
             if (response.success) {
                 this.cachedVMData = response.data;
                 this.vmCacheTimestamp = now;
                 this.updateVMsTable(response.data);
+
+                // Show appropriate message based on VM count
+                if (!response.data || response.data.length === 0) {
+                    this.showAlert('No VMs or containers found. They may not be running yet or discovery needs to be refreshed.', 'info', 4000);
+                }
+
                 return response.data;
             } else {
                 throw new Error(response.error || 'Failed to load VMs');
             }
         } catch (error) {
             console.error('Failed to load VMs:', error);
+
+            // Check if this is a common scenario (no VMs/LXCs) vs a real error
+            if (error.message.includes('No VMs found') ||
+                error.message.includes('No VMs/CTs available') ||
+                error.message.includes('failed to discover')) {
+                // This is expected when there are no VMs or only LXCs (or vice versa)
+                this.showAlert('VM discovery completed. No VMs or containers were found.', 'info', 3000);
+            } else {
+                // This is an actual error
+                this.showAlert(`Failed to load VMs: ${error.message}`, 'warning', 5000);
+            }
+
             if (this.cachedVMData) {
                 this.updateVMsTable(this.cachedVMData);
                 return this.cachedVMData;
@@ -704,11 +728,23 @@ class NetNATApp {
 
             const response = await this.makeRequest('/api/vms/refresh', { method: 'POST' });
             if (response.success) {
-                this.showAlert('VM list refreshed', 'info');
+                // Check if any VMs were found after refresh
+                if (!response.data || response.data.length === 0) {
+                    this.showAlert('VM refresh completed. No VMs or containers found.', 'info', 3000);
+                } else {
+                    this.showAlert(`VM list refreshed - found ${response.data.length} VM(s)/container(s)`, 'success');
+                }
                 this.loadVMs(false); // Use cached data from server response
             }
         } catch (error) {
             console.error('Failed to refresh VMs:', error);
+            // Check if this is a common scenario (no VMs/LXCs) vs a real error
+            if (error.message.includes('No VMs found') ||
+                error.message.includes('failed to discover')) {
+                this.showAlert('VM refresh completed. No VMs or containers were found.', 'info', 3000);
+            } else {
+                this.showAlert(`Failed to refresh VMs: ${error.message}`, 'warning', 5000);
+            }
         }
     }
 

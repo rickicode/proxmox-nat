@@ -811,13 +811,13 @@ func (m *Manager) getDailyHistory(iface string) ([]models.DailyTraffic, error) {
 											}
 
 											daily := models.DailyTraffic{
-												Date:              dateStr,
-												RXBytes:           rxBytes,
-												TXBytes:           txBytes,
-												RXBytesFormatted:  m.formatBytes(rxBytes),
-												TXBytesFormatted:  m.formatBytes(txBytes),
-												IsToday:           dateStr == today,
-												IsYesterday:       dateStr == yesterday,
+												Date:             dateStr,
+												RXBytes:          rxBytes,
+												TXBytes:          txBytes,
+												RXBytesFormatted: m.formatBytes(rxBytes),
+												TXBytesFormatted: m.formatBytes(txBytes),
+												IsToday:          dateStr == today,
+												IsYesterday:      dateStr == yesterday,
 											}
 
 											dailyHistory = append(dailyHistory, daily)
@@ -837,13 +837,13 @@ func (m *Manager) getDailyHistory(iface string) ([]models.DailyTraffic, error) {
 		for i := 6; i >= 0; i-- {
 			date := now.AddDate(0, 0, -i).Format("2006-01-02")
 			daily := models.DailyTraffic{
-				Date:              date,
-				RXBytes:           0,
-				TXBytes:           0,
-				RXBytesFormatted:  "0 B",
-				TXBytesFormatted:  "0 B",
-				IsToday:           date == today,
-				IsYesterday:       date == yesterday,
+				Date:             date,
+				RXBytes:          0,
+				TXBytes:          0,
+				RXBytesFormatted: "0 B",
+				TXBytesFormatted: "0 B",
+				IsToday:          date == today,
+				IsYesterday:      date == yesterday,
 			}
 			dailyHistory = append(dailyHistory, daily)
 		}
