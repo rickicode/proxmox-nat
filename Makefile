@@ -17,9 +17,21 @@ GOFLAGS = -trimpath
 .PHONY: all
 all: build
 
+# Build frontend
+.PHONY: frontend
+frontend:
+	@echo "Building Frontend..."
+	@cd frontend && npm install && npm run build
+	@echo "Embedding Frontend..."
+	@rm -rf internal/web/static/*
+	@mkdir -p internal/web/static
+	@cp -r frontend/build/* internal/web/static/
+	@touch internal/web/static/.gitkeep
+	@echo "Frontend build complete"
+
 # Build the application
 .PHONY: build
-build:
+build: frontend
 	@echo "Building $(APP_NAME) v$(VERSION)..."
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 go build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(APP_NAME) $(MAIN_PATH)
@@ -39,6 +51,11 @@ build-all:
 clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf $(BUILD_DIR)
+	@rm -rf frontend/node_modules
+	@rm -rf frontend/.svelte-kit
+	@rm -rf frontend/build
+	@rm -rf internal/web/static/*
+	@touch internal/web/static/.gitkeep
 	@echo "Clean complete"
 
 # Run tests
@@ -88,9 +105,9 @@ install: build
 	sudo mkdir -p $(CONFIG_DIR)
 	sudo mkdir -p $(CONFIG_DIR)/backups
 	sudo mkdir -p /var/log/netnat
-	sudo mkdir -p /opt/netnat/web
+	sudo mkdir -p /var/lib/netnat
 	
-	# Install binary
+	# Install binary (frontend is embedded, no separate web files needed)
 	sudo cp $(BUILD_DIR)/$(APP_NAME) $(INSTALL_PREFIX)/bin/$(APP_NAME)
 	sudo chmod +x $(INSTALL_PREFIX)/bin/$(APP_NAME)
 	
@@ -103,9 +120,6 @@ install: build
 		echo "Configuration file already exists at $(CONFIG_DIR)/config.yml"; \
 	fi
 	
-	# Install web files
-	sudo cp -r web/* /opt/netnat/web/
-	
 	# Install systemd service
 	sudo cp systemd/netnat.service $(SERVICE_DIR)/netnat.service
 	sudo systemctl daemon-reload
@@ -114,7 +128,8 @@ install: build
 	sudo chown -R root:root $(CONFIG_DIR)
 	sudo chmod 750 $(CONFIG_DIR)
 	sudo chmod 640 $(CONFIG_DIR)/*.yml
-	sudo chown -R root:root /opt/netnat
+	sudo chown -R root:root /var/lib/netnat
+	sudo chmod 750 /var/lib/netnat
 	
 	@echo "Installation complete!"
 	@echo "Configuration: $(CONFIG_DIR)/config.yml"
@@ -133,7 +148,7 @@ uninstall:
 	# Remove files
 	sudo rm -f $(INSTALL_PREFIX)/bin/$(APP_NAME)
 	sudo rm -f $(SERVICE_DIR)/netnat.service
-	sudo rm -rf /opt/netnat
+	sudo rm -rf /var/lib/netnat
 	
 	# Remove config (with confirmation)
 	@read -p "Remove configuration directory $(CONFIG_DIR)? [y/N]: " confirm; \
@@ -158,10 +173,9 @@ package: build-all
 		mkdir -p $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-linux-$$arch; \
 		cp $(BUILD_DIR)/$(APP_NAME)-linux-$$arch $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-linux-$$arch/$(APP_NAME); \
 		cp -r configs $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-linux-$$arch/; \
-		cp -r web $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-linux-$$arch/; \
 		cp -r systemd $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-linux-$$arch/; \
 		cp README.md $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-linux-$$arch/; \
-		cp Makefile $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-linux-$$arch/; \
+		cp install.sh $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-linux-$$arch/; \
 		tar -czf $(BUILD_DIR)/dist/$(APP_NAME)-$(VERSION)-linux-$$arch.tar.gz -C $(BUILD_DIR) $(APP_NAME)-$(VERSION)-linux-$$arch; \
 		rm -rf $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-linux-$$arch; \
 	done
