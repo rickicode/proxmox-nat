@@ -9,48 +9,12 @@ import (
 
 	"proxmox-nat/internal/models"
 
-	"github.com/gin-gonic/gin"
+	"github.com/labstack/echo/v4"
 	"golang.org/x/time/rate"
 )
 
-// cleanupExpiredCSRFTokens periodically removes expired CSRF tokens
-func (a *API) cleanupExpiredCSRFTokens() {
-	ticker := time.NewTicker(10 * time.Minute)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		a.csrfMutex.Lock()
-		now := time.Now()
-		for token, expiry := range a.csrfTokens {
-			if now.After(expiry) {
-				delete(a.csrfTokens, token)
-			}
-		}
-		a.csrfMutex.Unlock()
-	}
-}
-
-// corsMiddleware handles CORS
-func (a *API) corsMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Set CORS headers
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
-
-		// Handle preflight requests
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(http.StatusNoContent)
-			return
-		}
-
-		c.Next()
-	}
-}
-
-// rateLimitMiddleware implements rate limiting
-func (a *API) rateLimitMiddleware() gin.HandlerFunc {
+// rateLimitMiddleware implements rate limiting for Echo
+func (a *API) rateLimitMiddleware() echo.MiddlewareFunc {
 	type client struct {
 		limiter  *rate.Limiter
 		lastSeen time.Time
@@ -80,100 +44,93 @@ func (a *API) rateLimitMiddleware() gin.HandlerFunc {
 		}()
 	})
 
-	return func(c *gin.Context) {
-		ip := c.ClientIP()
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			ip := c.RealIP()
 
-		mu.Lock()
-		if _, exists := clients[ip]; !exists {
-			clients[ip] = &client{
-				limiter: rate.NewLimiter(rate.Every(time.Second), 100),
+			mu.Lock()
+			if _, exists := clients[ip]; !exists {
+				clients[ip] = &client{
+					limiter: rate.NewLimiter(rate.Every(time.Second), 100),
+				}
 			}
-		}
-		clients[ip].lastSeen = time.Now()
-		limiter := clients[ip].limiter
-		mu.Unlock()
+			clients[ip].lastSeen = time.Now()
+			limiter := clients[ip].limiter
+			mu.Unlock()
 
-		if !limiter.Allow() {
-			c.JSON(http.StatusTooManyRequests, models.APIResponse{
-				Success: false,
-				Error:   "Too many requests",
-			})
-			c.Abort()
-			return
-		}
+			if !limiter.Allow() {
+				return c.JSON(http.StatusTooManyRequests, models.APIResponse{
+					Success: false,
+					Error:   "Too many requests",
+				})
+			}
 
-		c.Next()
+			return next(c)
+		}
 	}
 }
 
-// csrfMiddleware implements CSRF protection
-func (a *API) csrfMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Skip CSRF for safe methods
-		if c.Request.Method == "GET" || c.Request.Method == "HEAD" || c.Request.Method == "OPTIONS" {
-			c.Next()
-			return
+// csrfMiddleware implements CSRF protection for Echo
+func (a *API) csrfMiddleware() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			// Skip CSRF for safe methods
+			if c.Request().Method == "GET" || c.Request().Method == "HEAD" || c.Request().Method == "OPTIONS" {
+				return next(c)
+			}
+
+			// Check if CSRF is enabled in config
+			if !a.config.Security.CSRFEnabled {
+				return next(c)
+			}
+
+			// Get CSRF token from header
+			token := c.Request().Header.Get("X-CSRF-Token")
+			if token == "" {
+				return c.JSON(http.StatusForbidden, models.APIResponse{
+					Success: false,
+					Error:   "CSRF token required",
+				})
+			}
+
+			// Validate token
+			a.csrfMutex.RLock()
+			expiry, exists := a.csrfTokens[token]
+			a.csrfMutex.RUnlock()
+
+			if !exists {
+				return c.JSON(http.StatusForbidden, models.APIResponse{
+					Success: false,
+					Error:   "Invalid CSRF token",
+				})
+			}
+
+			// Check if token is expired
+			if time.Now().After(expiry) {
+				a.csrfMutex.Lock()
+				delete(a.csrfTokens, token)
+				a.csrfMutex.Unlock()
+
+				return c.JSON(http.StatusForbidden, models.APIResponse{
+					Success: false,
+					Error:   "CSRF token expired",
+				})
+			}
+
+			return next(c)
 		}
-
-		// Check if CSRF is enabled in config
-		if !a.config.Security.CSRFEnabled {
-			c.Next()
-			return
-		}
-
-		// Get CSRF token from header
-		token := c.GetHeader("X-CSRF-Token")
-		if token == "" {
-			c.JSON(http.StatusForbidden, models.APIResponse{
-				Success: false,
-				Error:   "CSRF token required",
-			})
-			c.Abort()
-			return
-		}
-
-		// Validate token
-		a.csrfMutex.RLock()
-		expiry, exists := a.csrfTokens[token]
-		a.csrfMutex.RUnlock()
-
-		if !exists {
-			c.JSON(http.StatusForbidden, models.APIResponse{
-				Success: false,
-				Error:   "Invalid CSRF token",
-			})
-			c.Abort()
-			return
-		}
-
-		// Check if token is expired
-		if time.Now().After(expiry) {
-			a.csrfMutex.Lock()
-			delete(a.csrfTokens, token)
-			a.csrfMutex.Unlock()
-
-			c.JSON(http.StatusForbidden, models.APIResponse{
-				Success: false,
-				Error:   "CSRF token expired",
-			})
-			c.Abort()
-			return
-		}
-
-		c.Next()
 	}
 }
 
 // getCSRFToken generates and returns a new CSRF token
-func (a *API) getCSRFToken(c *gin.Context) {
+func (a *API) getCSRFToken(c echo.Context) error {
 	// Generate random token
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   "Failed to generate CSRF token",
 		})
-		return
 	}
 
 	token := base64.URLEncoding.EncodeToString(b)
@@ -184,9 +141,9 @@ func (a *API) getCSRFToken(c *gin.Context) {
 	a.csrfTokens[token] = expiry
 	a.csrfMutex.Unlock()
 
-	c.JSON(http.StatusOK, models.APIResponse{
+	return c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
-		Data: gin.H{
+		Data: map[string]interface{}{
 			"token":      token,
 			"expires_in": 3600, // 1 hour in seconds
 		},

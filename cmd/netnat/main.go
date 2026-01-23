@@ -130,7 +130,7 @@ func main() {
 	apiServer := api.New(cfg, store, netMgr, backupMgr, Version)
 	log.Printf("API server initialized successfully")
 
-	// Setup HTTP server
+	// Setup HTTP server with Echo handler
 	srv := &http.Server{
 		Addr:         cfg.Server.ListenAddr,
 		Handler:      apiServer.Handler(),

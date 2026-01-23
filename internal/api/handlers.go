@@ -7,514 +7,383 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	web "proxmox-nat/frontend"
-	"proxmox-nat/internal/auth"
-	"proxmox-nat/internal/backup"
-	"proxmox-nat/internal/discovery"
 	"proxmox-nat/internal/models"
-	"proxmox-nat/internal/network"
-	"proxmox-nat/internal/storage"
 
-	"github.com/gin-gonic/gin"
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
 
-// API represents the API server
-type API struct {
-	config     *models.Config
-	storage    *storage.Storage
-	network    *network.Manager
-	backup     *backup.Manager
-	discovery  *discovery.VMDiscovery
-	version    string
-	jwtManager *auth.JWTManager
-	csrfTokens map[string]time.Time
-	csrfMutex  sync.RWMutex
-}
-
-// New creates a new API instance
-func New(config *models.Config, storage *storage.Storage, network *network.Manager, backup *backup.Manager, version string) *API {
-	// Generate JWT secret if not set
-	jwtSecret := config.Server.JWTSecret
-	if jwtSecret == "" {
-		jwtSecret = "netnat-default-secret-change-in-production"
-	}
-
-	api := &API{
-		config:     config,
-		storage:    storage,
-		network:    network,
-		backup:     backup,
-		version:    version,
-		jwtManager: auth.NewJWTManager(jwtSecret, 24*time.Hour),
-		csrfTokens: make(map[string]time.Time),
-	}
-
-	// Initialize VM discovery
-	api.discovery = discovery.New(config.Network.InternalBridge)
-
-	// Start CSRF token cleanup goroutine
-	go api.cleanupExpiredCSRFTokens()
-
-	return api
-}
-
-// findBackupFile is a helper function to find backup file by timestamp
-func (a *API) findBackupFile(targetTimestamp string) (string, string, error) {
-	backups, err := a.backup.ListBackups()
-	if err != nil {
-		return "", "", fmt.Errorf("failed to list backups: %v", err)
-	}
-
-	// Create map for O(1) lookup
-	backupMap := make(map[string]string)
-	for _, backup := range backups {
-		key := backup.Timestamp.Format(time.RFC3339Nano)
-		backupMap[key] = backup.Timestamp.Format("20060102_150405")
-	}
-
-	timestampPart, exists := backupMap[targetTimestamp]
-	if !exists {
-		return "", "", fmt.Errorf("backup not found for timestamp: %s", targetTimestamp)
-	}
-
-	// Single loop to find file
-	files, err := os.ReadDir(a.config.Storage.BackupDir)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to read backup directory: %v", err)
-	}
-
-	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), ".json") {
-			continue
-		}
-
-		if strings.Contains(file.Name(), timestampPart) {
-			backupPath := filepath.Join(a.config.Storage.BackupDir, file.Name())
-			return backupPath, file.Name(), nil
-		}
-	}
-
-	return "", "", fmt.Errorf("backup file not found for timestamp: %s", targetTimestamp)
-}
-
-// Handler returns the HTTP handler
+// Handler returns the HTTP handler using Echo framework
 func (a *API) Handler() http.Handler {
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
+	e := echo.New()
+	e.HideBanner = true
+	e.HidePort = true
 
-	// Disable automatic redirects (fixes redirect loop)
-	r.RedirectTrailingSlash = false
-	r.RedirectFixedPath = false
+	// Middleware
+	e.Use(middleware.Logger())
+	e.Use(middleware.Recover())
+	e.Use(a.corsMiddleware())
 
-	r.Use(gin.Logger(), gin.Recovery())
-	r.Use(a.corsMiddleware())
-
-	// Serve SvelteKit Frontend (NO AUTH)
+	// Get embedded filesystem
 	rawStaticFS := web.GetStaticFS()
-	staticFS := http.FS(rawStaticFS)
 
-	// Serve _app directory (SvelteKit assets)
-	r.StaticFS("/_app", http.FS(web.GetSubFS("_app")))
+	// Serve SvelteKit static assets (_app directory)
+	e.GET("/_app/*", echo.WrapHandler(http.FileServer(http.FS(web.GetSubFS("_app")))))
 
-	// Serve other static files if they exist (favicon, etc)
-	r.GET("/favicon.png", func(c *gin.Context) {
-		c.FileFromFS("favicon.png", staticFS)
+	// Serve favicon
+	e.GET("/favicon.png", func(c echo.Context) error {
+		data, err := fs.ReadFile(rawStaticFS, "favicon.png")
+		if err != nil {
+			return c.String(http.StatusNotFound, "Favicon not found")
+		}
+		return c.Blob(http.StatusOK, "image/png", data)
 	})
 
 	// Root handler - serve index.html (NO AUTH)
-	r.GET("/", func(c *gin.Context) {
-		// Read file directly to avoid redirect issues
+	e.GET("/", func(c echo.Context) error {
 		data, err := fs.ReadFile(rawStaticFS, "index.html")
 		if err != nil {
 			fmt.Printf("ERROR: Cannot read index.html: %v\n", err)
-			c.String(http.StatusInternalServerError, "Application error: failed to load index.html")
-			return
+			return c.String(http.StatusInternalServerError, "Application error: failed to load index.html")
 		}
-		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+		return c.HTMLBlob(http.StatusOK, data)
 	})
 
 	// Public API routes (NO AUTH)
-	r.POST("/api/login", a.login)
-	r.POST("/api/logout", a.logout)
+	e.POST("/api/login", a.login)
+	e.POST("/api/logout", a.logout)
 
 	// Protected API routes (WITH JWT AUTH)
-	api := r.Group("/api")
+	api := e.Group("/api")
 	api.Use(a.jwtAuthMiddleware())
 	api.Use(a.rateLimitMiddleware())
-	{
-		// CSRF protection for mutating operations
-		mutating := api.Group("")
-		mutating.Use(a.csrfMiddleware())
 
-		// System status
-		api.GET("/status", a.getSystemStatus)
+	// System status
+	api.GET("/status", a.getSystemStatus)
 
-		// Rules CRUD
-		api.GET("/rules", a.getRules)
-		api.GET("/rules/:id", a.getRule)
-		mutating.POST("/rules", a.createRule)
-		mutating.PUT("/rules/:id", a.updateRule)
-		mutating.DELETE("/rules/:id", a.deleteRule)
-		mutating.POST("/rules/:id/toggle", a.toggleRule)
-		mutating.POST("/rules/cleanup", a.cleanupRules)
+	// Rules CRUD
+	api.GET("/rules", a.getRules)
+	api.GET("/rules/:id", a.getRule)
+	api.POST("/rules", a.createRule, a.csrfMiddleware())
+	api.PUT("/rules/:id", a.updateRule, a.csrfMiddleware())
+	api.DELETE("/rules/:id", a.deleteRule, a.csrfMiddleware())
+	api.POST("/rules/:id/toggle", a.toggleRule, a.csrfMiddleware())
+	api.POST("/rules/cleanup", a.cleanupRules, a.csrfMiddleware())
 
-		// VM/CT discovery
-		api.GET("/vms", a.getVMs)
-		api.GET("/vms/:id", a.getVM)
-		api.POST("/vms/refresh", a.refreshVMs)
+	// VM/CT discovery
+	api.GET("/vms", a.getVMs)
+	api.GET("/vms/:id", a.getVM)
+	api.POST("/vms/refresh", a.refreshVMs)
 
-		// Network operations
-		mutating.POST("/nat/enable", a.enableNAT)
-		mutating.POST("/nat/disable", a.disableNAT)
-		mutating.POST("/forwarding/enable", a.enableForwarding)
-		mutating.POST("/forwarding/disable", a.disableForwarding)
+	// Network operations
+	api.POST("/nat/enable", a.enableNAT, a.csrfMiddleware())
+	api.POST("/nat/disable", a.disableNAT, a.csrfMiddleware())
+	api.POST("/forwarding/enable", a.enableForwarding, a.csrfMiddleware())
+	api.POST("/forwarding/disable", a.disableForwarding, a.csrfMiddleware())
 
-		// Backup operations
-		api.GET("/backup/list", a.listBackups)
-		mutating.POST("/backup/create", a.createBackup)
-		mutating.POST("/backup/restore", a.restoreBackup)
-		mutating.POST("/backup/import", a.importBackup)
-		api.GET("/backup/export/:id", a.exportBackup)
+	// Backup operations
+	api.GET("/backup/list", a.listBackups)
+	api.POST("/backup/create", a.createBackup, a.csrfMiddleware())
+	api.POST("/backup/restore", a.restoreBackup, a.csrfMiddleware())
+	api.POST("/backup/import", a.importBackup, a.csrfMiddleware())
+	api.GET("/backup/export/:id", a.exportBackup)
 
-		// Dry-run operations
-		mutating.POST("/dry-run", a.dryRun)
+	// Dry-run operations
+	api.POST("/dry-run", a.dryRun, a.csrfMiddleware())
 
-		// Orphaned rules management
-		api.GET("/rules/orphaned", a.detectOrphanedRules)
-		mutating.POST("/rules/orphaned/cleanup", a.cleanOrphanedRules)
+	// Orphaned rules management
+	api.GET("/rules/orphaned", a.detectOrphanedRules)
+	api.POST("/rules/orphaned/cleanup", a.cleanOrphanedRules, a.csrfMiddleware())
 
-		// CSRF token endpoint
-		api.GET("/csrf-token", a.getCSRFToken)
+	// CSRF token endpoint
+	api.GET("/csrf-token", a.getCSRFToken)
 
-		// Network monitoring
-		api.GET("/network/traffic", a.getNetworkTraffic)
+	// Network monitoring
+	api.GET("/network/traffic", a.getNetworkTraffic)
 
-		// System info
-		api.GET("/version", a.getVersion)
-	}
+	// System info
+	api.GET("/version", a.getVersion)
 
-	// Handle 404s by serving index.html (SPA fallback)
-	r.NoRoute(func(c *gin.Context) {
+	// SPA fallback - serve index.html for all other routes
+	e.RouteNotFound("/*", func(c echo.Context) error {
 		// Don't serve SPA for API routes
-		if strings.HasPrefix(c.Request.URL.Path, "/api") {
-			c.JSON(http.StatusNotFound, models.APIResponse{
+		if strings.HasPrefix(c.Request().URL.Path, "/api") {
+			return c.JSON(http.StatusNotFound, models.APIResponse{
 				Success: false,
 				Error:   "API endpoint not found",
 			})
-			return
 		}
 
-		// Serve index.html for all other routes (SPA routing)
-		// Read file directly to avoid redirect issues
+		// Serve index.html for SPA routing
 		data, err := fs.ReadFile(rawStaticFS, "index.html")
 		if err != nil {
-			fmt.Printf("ERROR: Cannot read index.html in NoRoute: %v\n", err)
-			c.String(http.StatusNotFound, "Page not found")
-			return
+			fmt.Printf("ERROR: Cannot read index.html in RouteNotFound: %v\n", err)
+			return c.String(http.StatusNotFound, "Page not found")
 		}
-		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+		return c.HTMLBlob(http.StatusOK, data)
 	})
 
-	return r
+	return e
 }
 
-// getSystemStatus returns current system status
-func (a *API) getSystemStatus(c *gin.Context) {
+// corsMiddleware configures CORS for Echo
+func (a *API) corsMiddleware() echo.MiddlewareFunc {
+	return middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins: []string{"*"},
+		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
+		AllowHeaders: []string{"Content-Type", "Authorization", "X-CSRF-Token"},
+	})
+}
+
+// getSystemStatus returns system status
+func (a *API) getSystemStatus(c echo.Context) error {
 	status, err := a.network.GetSystemStatus()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to get system status: %v", err),
 		})
-		return
 	}
 
-	// Add rules count
 	total, active, err := a.storage.GetRulesCount()
 	if err == nil {
 		status.RulesCount = total
 		status.ActiveRules = active
 	}
 
-	// Add uptime (placeholder - would be calculated from service start time)
 	status.Uptime = "N/A"
 
-	c.JSON(http.StatusOK, models.APIResponse{
+	return c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Data:    status,
 	})
 }
 
-// getRules returns all rules
-func (a *API) getRules(c *gin.Context) {
+// Echo wrapper handlers - Rules
+func (a *API) getRules(c echo.Context) error {
 	rulesData, err := a.storage.LoadRules()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to load rules: %v", err),
 		})
-		return
 	}
 
-	c.JSON(http.StatusOK, models.APIResponse{
+	return c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Data:    rulesData.Rules,
 	})
 }
 
-// getRule returns a specific rule
-func (a *API) getRule(c *gin.Context) {
+func (a *API) getRule(c echo.Context) error {
 	id := c.Param("id")
 	rule, err := a.storage.GetRule(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, models.APIResponse{
+		return c.JSON(http.StatusNotFound, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Rule not found: %v", err),
 		})
-		return
 	}
 
-	c.JSON(http.StatusOK, models.APIResponse{
+	return c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Data:    rule,
 	})
 }
 
-// createRule creates a new rule
-func (a *API) createRule(c *gin.Context) {
+func (a *API) createRule(c echo.Context) error {
 	var rule models.Rule
-	if err := c.ShouldBindJSON(&rule); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{
+	if err := c.Bind(&rule); err != nil {
+		return c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Invalid request: %v", err),
 		})
-		return
 	}
 
-	// Validate rule
 	if err := a.validateRule(rule); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{
+		return c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Validation failed: %v", err),
 		})
-		return
 	}
 
-	// Generate ID
 	rule.ID = fmt.Sprintf("rule-%d", time.Now().Unix())
 
-	// Create backup if auto-backup is enabled
 	if a.config.Storage.AutoBackup {
 		if err := a.backup.CreateAutoBackup("pre-create"); err != nil {
 			fmt.Printf("Warning: Failed to create backup: %v\n", err)
 		}
 	}
 
-	// Add rule to storage
 	if err := a.storage.AddRule(rule); err != nil {
-		c.JSON(http.StatusConflict, models.APIResponse{
+		return c.JSON(http.StatusConflict, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to add rule: %v", err),
 		})
-		return
 	}
 
-	// Apply rule if enabled
 	if rule.Enabled {
 		if err := a.network.AddDNATRule(rule); err != nil {
 			fmt.Printf("Warning: Failed to apply rule: %v\n", err)
 		}
 	}
 
-	c.JSON(http.StatusCreated, models.APIResponse{
+	return c.JSON(http.StatusCreated, models.APIResponse{
 		Success: true,
 		Message: "Rule created successfully",
 		Data:    rule,
 	})
 }
 
-// updateRule updates an existing rule
-func (a *API) updateRule(c *gin.Context) {
+func (a *API) updateRule(c echo.Context) error {
 	id := c.Param("id")
 	var updatedRule models.Rule
-	if err := c.ShouldBindJSON(&updatedRule); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{
+	if err := c.Bind(&updatedRule); err != nil {
+		return c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Invalid request: %v", err),
 		})
-		return
 	}
 
-	// Validate rule
 	if err := a.validateRule(updatedRule); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{
+		return c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Validation failed: %v", err),
 		})
-		return
 	}
 
-	// Get old rule for network cleanup
 	oldRule, err := a.storage.GetRule(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, models.APIResponse{
+		return c.JSON(http.StatusNotFound, models.APIResponse{
 			Success: false,
 			Error:   "Rule not found",
 		})
-		return
 	}
 
-	// Create backup if auto-backup is enabled
 	if a.config.Storage.AutoBackup {
 		if err := a.backup.CreateAutoBackup("pre-update"); err != nil {
 			fmt.Printf("Warning: Failed to create backup: %v\n", err)
 		}
 	}
 
-	// Remove old network rule
 	if oldRule.Enabled {
 		if err := a.network.RemoveDNATRule(*oldRule); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{
+			return c.JSON(http.StatusInternalServerError, models.APIResponse{
 				Success: false,
 				Error:   fmt.Sprintf("Failed to remove old network rule: %v", err),
 			})
-			return
 		}
 	}
 
-	// Update rule in storage
 	if err := a.storage.UpdateRule(id, updatedRule); err != nil {
-		// Rollback: re-add old rule if storage update fails
 		if oldRule.Enabled {
 			a.network.AddDNATRule(*oldRule)
 		}
-		c.JSON(http.StatusConflict, models.APIResponse{
+		return c.JSON(http.StatusConflict, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to update rule: %v", err),
 		})
-		return
 	}
 
-	// Apply new rule if enabled
 	if updatedRule.Enabled {
 		if err := a.network.AddDNATRule(updatedRule); err != nil {
 			fmt.Printf("Warning: Failed to apply updated rule: %v\n", err)
 		}
 	}
 
-	c.JSON(http.StatusOK, models.APIResponse{
+	return c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Message: "Rule updated successfully",
 		Data:    updatedRule,
 	})
 }
 
-// deleteRule deletes a rule
-func (a *API) deleteRule(c *gin.Context) {
+func (a *API) deleteRule(c echo.Context) error {
 	id := c.Param("id")
 
-	// Get rule for network cleanup
 	rule, err := a.storage.GetRule(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, models.APIResponse{
+		return c.JSON(http.StatusNotFound, models.APIResponse{
 			Success: false,
 			Error:   "Rule not found",
 		})
-		return
 	}
 
-	// Create backup if auto-backup is enabled
 	if a.config.Storage.AutoBackup {
 		if err := a.backup.CreateAutoBackup("pre-delete"); err != nil {
 			fmt.Printf("Warning: Failed to create backup: %v\n", err)
 		}
 	}
 
-	// Remove network rule
 	if rule.Enabled {
 		if err := a.network.RemoveDNATRule(*rule); err != nil {
 			fmt.Printf("Warning: Failed to remove network rule: %v\n", err)
 		}
 	}
 
-	// Delete from storage
 	if err := a.storage.DeleteRule(id); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to delete rule: %v", err),
 		})
-		return
 	}
 
-	c.JSON(http.StatusOK, models.APIResponse{
+	return c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Message: "Rule deleted successfully",
 	})
 }
 
-// toggleRule toggles a rule's enabled status
-func (a *API) toggleRule(c *gin.Context) {
+func (a *API) toggleRule(c echo.Context) error {
 	id := c.Param("id")
 
-	// Verify rule exists
 	_, err := a.storage.GetRule(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, models.APIResponse{
+		return c.JSON(http.StatusNotFound, models.APIResponse{
 			Success: false,
 			Error:   "Rule not found",
 		})
-		return
 	}
 
-	// Create backup if auto-backup is enabled
 	if a.config.Storage.AutoBackup {
 		if err := a.backup.CreateAutoBackup("pre-toggle"); err != nil {
 			fmt.Printf("Warning: Failed to create backup: %v\n", err)
 		}
 	}
 
-	// Toggle in storage first to ensure consistency
 	if err := a.storage.ToggleRule(id); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to toggle rule: %v", err),
 		})
-		return
 	}
 
-	// Get updated rule with new status
 	updatedRule, err := a.storage.GetRule(id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   "Failed to get updated rule",
 		})
-		return
 	}
 
-	// Apply/remove network rule based on new status
 	if updatedRule.Enabled {
 		if err := a.network.AddDNATRule(*updatedRule); err != nil {
-			// Rollback storage change on network failure
 			a.storage.ToggleRule(id)
-			c.JSON(http.StatusInternalServerError, models.APIResponse{
+			return c.JSON(http.StatusInternalServerError, models.APIResponse{
 				Success: false,
 				Error:   fmt.Sprintf("Failed to enable rule: %v", err),
 			})
-			return
 		}
 	} else {
 		if err := a.network.RemoveDNATRule(*updatedRule); err != nil {
-			// Rollback storage change on network failure
 			a.storage.ToggleRule(id)
-			c.JSON(http.StatusInternalServerError, models.APIResponse{
+			return c.JSON(http.StatusInternalServerError, models.APIResponse{
 				Success: false,
 				Error:   fmt.Sprintf("Failed to disable rule: %v", err),
 			})
-			return
 		}
 	}
 
@@ -523,253 +392,202 @@ func (a *API) toggleRule(c *gin.Context) {
 		status = "enabled"
 	}
 
-	c.JSON(http.StatusOK, models.APIResponse{
+	return c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Message: fmt.Sprintf("Rule %s successfully", status),
 	})
 }
 
-// getVMs returns discovered VMs/containers
-func (a *API) getVMs(c *gin.Context) {
-	vms, err := a.discovery.DiscoverVMs()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to discover VMs: %v", err),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, models.APIResponse{
-		Success: true,
-		Data:    vms,
-	})
-}
-
-// getVM returns a specific VM
-func (a *API) getVM(c *gin.Context) {
-	id := c.Param("id")
-	vm, err := a.discovery.GetVMByID(id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, models.APIResponse{
-			Success: false,
-			Error:   fmt.Sprintf("VM not found: %v", err),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, models.APIResponse{
-		Success: true,
-		Data:    vm,
-	})
-}
-
-// refreshVMs forces a refresh of VM discovery
-func (a *API) refreshVMs(c *gin.Context) {
-	vms, err := a.discovery.RefreshVMData()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to refresh VMs: %v", err),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, models.APIResponse{
-		Success: true,
-		Message: "VMs refreshed successfully",
-		Data:    vms,
-	})
-}
-
-// validateRule validates a rule structure
-func (a *API) validateRule(rule models.Rule) error {
-	if rule.Name == "" {
-		return fmt.Errorf("rule name is required")
-	}
-
-	if rule.ExternalPort < 1 || rule.ExternalPort > 65535 {
-		return fmt.Errorf("external port must be between 1 and 65535")
-	}
-
-	if rule.InternalPort < 1 || rule.InternalPort > 65535 {
-		return fmt.Errorf("internal port must be between 1 and 65535")
-	}
-
-	if rule.InternalIP == "" {
-		return fmt.Errorf("internal IP is required")
-	}
-
-	if rule.Protocol != "tcp" && rule.Protocol != "udp" && rule.Protocol != "both" {
-		return fmt.Errorf("protocol must be tcp, udp, or both")
-	}
-
-	// Check port range restrictions
-	if rule.ExternalPort < a.config.Network.PortRange.Min || rule.ExternalPort > a.config.Network.PortRange.Max {
-		return fmt.Errorf("external port %d is outside allowed range %d-%d",
-			rule.ExternalPort, a.config.Network.PortRange.Min, a.config.Network.PortRange.Max)
-	}
-
-	// Check excluded ports
-	for _, excluded := range a.config.Network.PortRange.Exclude {
-		if rule.ExternalPort == excluded {
-			return fmt.Errorf("external port %d is in excluded list", rule.ExternalPort)
+func (a *API) cleanupRules(c echo.Context) error {
+	if a.config.Storage.AutoBackup {
+		if err := a.backup.CreateAutoBackup("pre-cleanup"); err != nil {
+			fmt.Printf("Warning: Failed to create backup: %v\n", err)
 		}
 	}
 
-	return nil
+	duplicatesRemoved, err := a.storage.CleanupDuplicateRules()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to cleanup duplicate rules: %v", err),
+		})
+	}
+
+	validationResult, err := a.storage.ValidateAndFixRules()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to validate rules: %v", err),
+		})
+	}
+
+	rules, err := a.storage.GetEnabledRules()
+	if err == nil {
+		if err := a.network.ApplyRules(rules); err != nil {
+			fmt.Printf("Warning: Failed to apply cleaned rules: %v\n", err)
+		}
+	}
+
+	result := map[string]interface{}{
+		"duplicates_removed": duplicatesRemoved,
+		"validation_result":  validationResult,
+	}
+
+	message := fmt.Sprintf("Rules cleanup completed. Removed %d duplicates, fixed %d rules",
+		duplicatesRemoved, validationResult.FixedRules)
+
+	return c.JSON(http.StatusOK, models.APIResponse{
+		Success: true,
+		Message: message,
+		Data:    result,
+	})
 }
 
-// enableNAT enables NAT masquerade
-func (a *API) enableNAT(c *gin.Context) {
+// Continue with other Echo handlers...
+// (VMs, Network, Backup, etc - I'll create stub implementations)
+
+func (a *API) getVMs(c echo.Context) error {
+	vms, err := a.discovery.DiscoverVMs()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to discover VMs: %v", err),
+		})
+	}
+	return c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: vms})
+}
+
+func (a *API) getVM(c echo.Context) error {
+	id := c.Param("id")
+	vm, err := a.discovery.GetVMByID(id)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("VM not found: %v", err),
+		})
+	}
+	return c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: vm})
+}
+
+func (a *API) refreshVMs(c echo.Context) error {
+	vms, err := a.discovery.RefreshVMData()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to refresh VMs: %v", err),
+		})
+	}
+	return c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "VMs refreshed successfully", Data: vms})
+}
+
+func (a *API) enableNAT(c echo.Context) error {
 	if err := a.network.EnableNAT(); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to enable NAT: %v", err),
 		})
-		return
 	}
-
-	c.JSON(http.StatusOK, models.APIResponse{
-		Success: true,
-		Message: "NAT enabled successfully",
-	})
+	return c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "NAT enabled successfully"})
 }
 
-// disableNAT disables NAT masquerade
-func (a *API) disableNAT(c *gin.Context) {
+func (a *API) disableNAT(c echo.Context) error {
 	if err := a.network.DisableNAT(); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to disable NAT: %v", err),
 		})
-		return
 	}
-
-	c.JSON(http.StatusOK, models.APIResponse{
-		Success: true,
-		Message: "NAT disabled successfully",
-	})
+	return c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "NAT disabled successfully"})
 }
 
-// enableForwarding enables IPv4 forwarding
-func (a *API) enableForwarding(c *gin.Context) {
+func (a *API) enableForwarding(c echo.Context) error {
 	if err := a.network.EnableIPForwarding(); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to enable IP forwarding: %v", err),
 		})
-		return
 	}
-
-	c.JSON(http.StatusOK, models.APIResponse{
-		Success: true,
-		Message: "IP forwarding enabled successfully",
-	})
+	return c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "IP forwarding enabled successfully"})
 }
 
-// disableForwarding disables IPv4 forwarding
-func (a *API) disableForwarding(c *gin.Context) {
+func (a *API) disableForwarding(c echo.Context) error {
 	if err := a.network.DisableIPForwarding(); err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to disable IP forwarding: %v", err),
 		})
-		return
 	}
-
-	c.JSON(http.StatusOK, models.APIResponse{
-		Success: true,
-		Message: "IP forwarding disabled successfully",
-	})
+	return c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "IP forwarding disabled successfully"})
 }
 
-// listBackups lists available backup files
-func (a *API) listBackups(c *gin.Context) {
+func (a *API) listBackups(c echo.Context) error {
 	backups, err := a.backup.ListBackups()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to list backups: %v", err),
 		})
-		return
 	}
-
-	c.JSON(http.StatusOK, models.APIResponse{
-		Success: true,
-		Data:    backups,
-	})
+	return c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: backups})
 }
 
-// createBackup creates a manual backup
-func (a *API) createBackup(c *gin.Context) {
+func (a *API) createBackup(c echo.Context) error {
 	var req struct {
 		Name string `json:"name"`
 	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Invalid request: %v", err),
 		})
-		return
 	}
 
 	metadata, err := a.backup.CreateBackup(req.Name)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to create backup: %v", err),
 		})
-		return
 	}
 
-	c.JSON(http.StatusCreated, models.APIResponse{
+	return c.JSON(http.StatusCreated, models.APIResponse{
 		Success: true,
 		Message: "Backup created successfully",
 		Data:    metadata,
 	})
 }
 
-// restoreBackup restores from a backup
-func (a *API) restoreBackup(c *gin.Context) {
+func (a *API) restoreBackup(c echo.Context) error {
 	var req struct {
 		BackupPath string `json:"backup_path"`
 		Preview    bool   `json:"preview"`
 	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Invalid request: %v", err),
 		})
-		return
 	}
 
-	// Use helper function to find backup file
 	backupPath, _, err := a.findBackupFile(req.BackupPath)
 	if err != nil {
-		c.JSON(http.StatusNotFound, models.APIResponse{
+		return c.JSON(http.StatusNotFound, models.APIResponse{
 			Success: false,
 			Error:   err.Error(),
 		})
-		return
 	}
 
 	result, err := a.backup.RestoreBackup(backupPath, req.Preview)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to restore backup: %v", err),
 		})
-		return
 	}
 
 	message := "Backup preview generated"
 	if !req.Preview {
 		message = "Backup restored successfully"
-
-		// Reload and apply rules after restore
 		if rules, err := a.storage.GetEnabledRules(); err == nil {
 			if err := a.network.ApplyRules(rules); err != nil {
 				fmt.Printf("Warning: Failed to apply restored rules: %v\n", err)
@@ -777,81 +595,68 @@ func (a *API) restoreBackup(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, models.APIResponse{
+	return c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Message: message,
 		Data:    result,
 	})
 }
 
-// importBackup imports a backup from external file
-func (a *API) importBackup(c *gin.Context) {
+func (a *API) importBackup(c echo.Context) error {
 	var req struct {
 		ImportPath string `json:"import_path"`
 	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Invalid request: %v", err),
 		})
-		return
 	}
 
 	metadata, err := a.backup.ImportBackup(req.ImportPath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to import backup: %v", err),
 		})
-		return
 	}
 
-	c.JSON(http.StatusCreated, models.APIResponse{
+	return c.JSON(http.StatusCreated, models.APIResponse{
 		Success: true,
 		Message: "Backup imported successfully",
 		Data:    metadata,
 	})
 }
 
-// exportBackup exports a backup file
-func (a *API) exportBackup(c *gin.Context) {
+func (a *API) exportBackup(c echo.Context) error {
 	id := c.Param("id")
-
-	// Convert timestamp to actual backup file path
 	backups, err := a.backup.ListBackups()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to list backups: %v", err),
 		})
-		return
 	}
 
 	var backupPath string
 	var filename string
 	targetTimestamp := id
 
-	// Search for backup file by scanning actual files in backup directory
 	files, err := os.ReadDir(a.config.Storage.BackupDir)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to read backup directory: %v", err),
 		})
-		return
 	}
 
-	// Try to match by timestamp in filename
 	for _, file := range files {
 		if file.IsDir() || !strings.HasSuffix(file.Name(), ".json") {
 			continue
 		}
 
-		// Check if any backup metadata matches the requested timestamp
 		for _, backup := range backups {
 			if backup.Timestamp.Format(time.RFC3339Nano) == targetTimestamp {
-				// Found matching timestamp, now find the actual file
 				timestampPart := backup.Timestamp.Format("20060102_150405")
 				if strings.Contains(file.Name(), timestampPart) {
 					filename = file.Name()
@@ -866,31 +671,25 @@ func (a *API) exportBackup(c *gin.Context) {
 	}
 
 	if backupPath == "" {
-		c.JSON(http.StatusNotFound, models.APIResponse{
+		return c.JSON(http.StatusNotFound, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Backup file not found for timestamp: %s", targetTimestamp),
 		})
-		return
 	}
 
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
-	c.Header("Content-Type", "application/json")
-	c.File(backupPath)
+	return c.Attachment(backupPath, filename)
 }
 
-// dryRun performs a dry-run operation
-func (a *API) dryRun(c *gin.Context) {
+func (a *API) dryRun(c echo.Context) error {
 	var req struct {
 		Operation string      `json:"operation"`
 		Data      interface{} `json:"data"`
 	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Invalid request: %v", err),
 		})
-		return
 	}
 
 	var result interface{}
@@ -912,85 +711,28 @@ func (a *API) dryRun(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{
+		return c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Dry-run failed: %v", err),
 		})
-		return
 	}
 
-	c.JSON(http.StatusOK, models.APIResponse{
+	return c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Message: "Dry-run completed successfully",
 		Data:    result,
 	})
 }
 
-// cleanupRules cleans up duplicate port rules and validates all rules
-func (a *API) cleanupRules(c *gin.Context) {
-	// Create backup if auto-backup is enabled
-	if a.config.Storage.AutoBackup {
-		if err := a.backup.CreateAutoBackup("pre-cleanup"); err != nil {
-			fmt.Printf("Warning: Failed to create backup: %v\n", err)
-		}
-	}
-
-	// Cleanup duplicate rules
-	duplicatesRemoved, err := a.storage.CleanupDuplicateRules()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to cleanup duplicate rules: %v", err),
-		})
-		return
-	}
-
-	// Validate and fix rules
-	validationResult, err := a.storage.ValidateAndFixRules()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to validate rules: %v", err),
-		})
-		return
-	}
-
-	// Reload and apply rules after cleanup
-	rules, err := a.storage.GetEnabledRules()
-	if err == nil {
-		if err := a.network.ApplyRules(rules); err != nil {
-			fmt.Printf("Warning: Failed to apply cleaned rules: %v\n", err)
-		}
-	}
-
-	result := map[string]interface{}{
-		"duplicates_removed": duplicatesRemoved,
-		"validation_result":  validationResult,
-	}
-
-	message := fmt.Sprintf("Rules cleanup completed. Removed %d duplicates, fixed %d rules",
-		duplicatesRemoved, validationResult.FixedRules)
-
-	c.JSON(http.StatusOK, models.APIResponse{
-		Success: true,
-		Message: message,
-		Data:    result,
-	})
-}
-
-// detectOrphanedRules detects rules pointing to deleted VMs
-func (a *API) detectOrphanedRules(c *gin.Context) {
-	// Get all VMs for comparison
+func (a *API) detectOrphanedRules(c echo.Context) error {
 	allVMs, err := a.discovery.DiscoverVMs()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to discover VMs for orphan detection: %v", err),
 		})
-		return
 	}
 
-	// Extract active VM IPs and IDs
 	var activeVMIPs []string
 	var allVMIDs []string
 
@@ -1003,35 +745,29 @@ func (a *API) detectOrphanedRules(c *gin.Context) {
 		}
 	}
 
-	// Detect orphaned rules (dry run)
 	result, err := a.storage.RemoveOrphanedRules(activeVMIPs, allVMIDs, true)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to detect orphaned rules: %v", err),
 		})
-		return
 	}
 
-	c.JSON(http.StatusOK, models.APIResponse{
+	return c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Data:    result,
 	})
 }
 
-// cleanOrphanedRules removes orphaned rules after confirmation
-func (a *API) cleanOrphanedRules(c *gin.Context) {
-	// Get all VMs for comparison
+func (a *API) cleanOrphanedRules(c echo.Context) error {
 	allVMs, err := a.discovery.DiscoverVMs()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to discover VMs for orphan cleanup: %v", err),
 		})
-		return
 	}
 
-	// Extract active VM IPs and IDs
 	var activeVMIPs []string
 	var allVMIDs []string
 
@@ -1044,24 +780,20 @@ func (a *API) cleanOrphanedRules(c *gin.Context) {
 		}
 	}
 
-	// Create backup if auto-backup is enabled
 	if a.config.Storage.AutoBackup {
 		if err := a.backup.CreateAutoBackup("pre-orphan-cleanup"); err != nil {
 			fmt.Printf("Warning: Failed to create backup: %v\n", err)
 		}
 	}
 
-	// Remove orphaned rules (actual cleanup)
 	result, err := a.storage.RemoveOrphanedRules(activeVMIPs, allVMIDs, false)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to clean orphaned rules: %v", err),
 		})
-		return
 	}
 
-	// Apply network rules after cleanup
 	rules, err := a.storage.GetEnabledRules()
 	if err == nil {
 		if err := a.network.ApplyRules(rules); err != nil {
@@ -1069,26 +801,22 @@ func (a *API) cleanOrphanedRules(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, models.APIResponse{
+	return c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Message: fmt.Sprintf("Orphaned rules cleanup completed. Removed %d rules", result.RemovedCount),
 		Data:    result,
 	})
 }
 
-// getNetworkTraffic returns real-time network traffic data
-func (a *API) getNetworkTraffic(c *gin.Context) {
-	// Get network traffic data from network manager
+func (a *API) getNetworkTraffic(c echo.Context) error {
 	traffic, err := a.network.GetNetworkTraffic()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to get network traffic: %v", err),
 		})
-		return
 	}
 
-	// Get active rules count
 	total, active, err := a.storage.GetRulesCount()
 	if err == nil {
 		traffic.ActiveRules = active
@@ -1097,22 +825,21 @@ func (a *API) getNetworkTraffic(c *gin.Context) {
 
 	traffic.LastUpdated = time.Now()
 
-	c.JSON(http.StatusOK, models.APIResponse{
+	return c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Data:    traffic,
 	})
 }
 
-// getVersion returns application version information
-func (a *API) getVersion(c *gin.Context) {
+func (a *API) getVersion(c echo.Context) error {
 	versionInfo := map[string]interface{}{
 		"version":     a.version,
 		"app_name":    "NetNAT",
 		"description": "NAT & Port Forwarding Manager",
-		"build_time":  time.Now().Format("2006-01-02"), // Could be set during build
+		"build_time":  time.Now().Format("2006-01-02"),
 	}
 
-	c.JSON(http.StatusOK, models.APIResponse{
+	return c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Data:    versionInfo,
 	})
