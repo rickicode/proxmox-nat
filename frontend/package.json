@@ -1,0 +1,30 @@
+{
+  "name": "netnat-frontend",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json",
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json --watch"
+  },
+  "devDependencies": {
+    "@iconify/svelte": "^4.0.2",
+    "@sveltejs/adapter-static": "^3.0.5",
+    "@sveltejs/kit": "^2.8.5",
+    "@sveltejs/vite-plugin-svelte": "^5.0.2",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "svelte": "^5.1.9",
+    "svelte-check": "^4.0.8",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.5.5"
+  },
+  "type": "module"
+}

@@ -44,6 +44,45 @@ func New(config *models.Config, storage *storage.Storage, network *network.Manag
 	return api
 }
 
+// findBackupFile is a helper function to find backup file by timestamp
+func (a *API) findBackupFile(targetTimestamp string) (string, string, error) {
+	backups, err := a.backup.ListBackups()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to list backups: %v", err)
+	}
+
+	// Create map for O(1) lookup
+	backupMap := make(map[string]string)
+	for _, backup := range backups {
+		key := backup.Timestamp.Format(time.RFC3339Nano)
+		backupMap[key] = backup.Timestamp.Format("20060102_150405")
+	}
+
+	timestampPart, exists := backupMap[targetTimestamp]
+	if !exists {
+		return "", "", fmt.Errorf("backup not found for timestamp: %s", targetTimestamp)
+	}
+
+	// Single loop to find file
+	files, err := os.ReadDir(a.config.Storage.BackupDir)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to read backup directory: %v", err)
+	}
+
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".json") {
+			continue
+		}
+
+		if strings.Contains(file.Name(), timestampPart) {
+			backupPath := filepath.Join(a.config.Storage.BackupDir, file.Name())
+			return backupPath, file.Name(), nil
+		}
+	}
+
+	return "", "", fmt.Errorf("backup file not found for timestamp: %s", targetTimestamp)
+}
+
 // Handler returns the HTTP handler
 func (a *API) Handler() http.Handler {
 	gin.SetMode(gin.ReleaseMode)
@@ -55,15 +94,31 @@ func (a *API) Handler() http.Handler {
 	r.Use(a.authMiddleware())
 	r.Use(a.rateLimitMiddleware())
 
-	// Static files from embedded filesystem
-	r.StaticFS("/static", http.FS(web.GetStaticFS()))
-	r.SetHTMLTemplate(web.LoadTemplates())
+	// Serve SvelteKit Frontend
+	staticFS := http.FS(web.GetStaticFS())
 
-	// Web UI
-	r.GET("/", a.indexHandler)
+	// Serve _app directory (SvelteKit assets)
+	// We need to strip the prefix because the FS is already rooted at static/
+	// but the request comes in as /_app/...
+	r.StaticFS("/_app", http.FS(web.GetSubFS("_app")))
+
+	// Serve other static files if they exist (favicon, etc)
+	// This is a bit manual, but safe
+	r.GET("/favicon.png", func(c *gin.Context) {
+		c.FileFromFS("favicon.png", staticFS)
+	})
+
+	// SPA Catch-all handler
+	// Serves index.html for root and any unknown routes (except API)
+	spaHandler := func(c *gin.Context) {
+		c.FileFromFS("index.html", staticFS)
+	}
+
+	r.GET("/", spaHandler)
 
 	// API routes
 	api := r.Group("/api")
+
 	{
 		// CSRF protection for mutating operations
 		mutating := api.Group("")
@@ -116,14 +171,19 @@ func (a *API) Handler() http.Handler {
 		api.GET("/version", a.getVersion)
 	}
 
-	return r
-}
-
-// indexHandler serves the main web UI
-func (a *API) indexHandler(c *gin.Context) {
-	c.HTML(http.StatusOK, "index.html", gin.H{
-		"title": "NetNAT - NAT & Port Forwarding Manager",
+	// Handle 404s by serving index.html (SPA fallback)
+	r.NoRoute(func(c *gin.Context) {
+		if !strings.HasPrefix(c.Request.URL.Path, "/api") {
+			c.FileFromFS("index.html", staticFS)
+		} else {
+			c.JSON(http.StatusNotFound, models.APIResponse{
+				Success: false,
+				Error:   "API endpoint not found",
+			})
+		}
 	})
+
+	return r
 }
 
 // getSystemStatus returns current system status
@@ -282,12 +342,20 @@ func (a *API) updateRule(c *gin.Context) {
 	// Remove old network rule
 	if oldRule.Enabled {
 		if err := a.network.RemoveDNATRule(*oldRule); err != nil {
-			fmt.Printf("Warning: Failed to remove old rule: %v\n", err)
+			c.JSON(http.StatusInternalServerError, models.APIResponse{
+				Success: false,
+				Error:   fmt.Sprintf("Failed to remove old network rule: %v", err),
+			})
+			return
 		}
 	}
 
 	// Update rule in storage
 	if err := a.storage.UpdateRule(id, updatedRule); err != nil {
+		// Rollback: re-add old rule if storage update fails
+		if oldRule.Enabled {
+			a.network.AddDNATRule(*oldRule)
+		}
 		c.JSON(http.StatusConflict, models.APIResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to update rule: %v", err),
@@ -356,8 +424,8 @@ func (a *API) deleteRule(c *gin.Context) {
 func (a *API) toggleRule(c *gin.Context) {
 	id := c.Param("id")
 
-	// Get current rule
-	rule, err := a.storage.GetRule(id)
+	// Verify rule exists
+	_, err := a.storage.GetRule(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.APIResponse{
 			Success: false,
@@ -373,24 +441,7 @@ func (a *API) toggleRule(c *gin.Context) {
 		}
 	}
 
-	newEnabled := !rule.Enabled
-
-	// Apply/remove network rule
-	if newEnabled {
-		if err := a.network.AddDNATRule(*rule); err != nil {
-			c.JSON(http.StatusInternalServerError, models.APIResponse{
-				Success: false,
-				Error:   fmt.Sprintf("Failed to enable rule: %v", err),
-			})
-			return
-		}
-	} else {
-		if err := a.network.RemoveDNATRule(*rule); err != nil {
-			fmt.Printf("Warning: Failed to disable rule: %v\n", err)
-		}
-	}
-
-	// Toggle in storage
+	// Toggle in storage first to ensure consistency
 	if err := a.storage.ToggleRule(id); err != nil {
 		c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
@@ -399,8 +450,41 @@ func (a *API) toggleRule(c *gin.Context) {
 		return
 	}
 
+	// Get updated rule with new status
+	updatedRule, err := a.storage.GetRule(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   "Failed to get updated rule",
+		})
+		return
+	}
+
+	// Apply/remove network rule based on new status
+	if updatedRule.Enabled {
+		if err := a.network.AddDNATRule(*updatedRule); err != nil {
+			// Rollback storage change on network failure
+			a.storage.ToggleRule(id)
+			c.JSON(http.StatusInternalServerError, models.APIResponse{
+				Success: false,
+				Error:   fmt.Sprintf("Failed to enable rule: %v", err),
+			})
+			return
+		}
+	} else {
+		if err := a.network.RemoveDNATRule(*updatedRule); err != nil {
+			// Rollback storage change on network failure
+			a.storage.ToggleRule(id)
+			c.JSON(http.StatusInternalServerError, models.APIResponse{
+				Success: false,
+				Error:   fmt.Sprintf("Failed to disable rule: %v", err),
+			})
+			return
+		}
+	}
+
 	status := "disabled"
-	if newEnabled {
+	if updatedRule.Enabled {
 		status = "enabled"
 	}
 
@@ -627,57 +711,12 @@ func (a *API) restoreBackup(c *gin.Context) {
 		return
 	}
 
-	// Convert timestamp to actual backup file path
-	// Frontend sends timestamp, we need to find the matching backup file
-	backups, err := a.backup.ListBackups()
+	// Use helper function to find backup file
+	backupPath, _, err := a.findBackupFile(req.BackupPath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to list backups: %v", err),
-		})
-		return
-	}
-
-	var backupPath string
-	targetTimestamp := req.BackupPath
-
-	// Search for backup file by scanning actual files in backup directory
-	files, err := os.ReadDir(a.config.Storage.BackupDir)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to read backup directory: %v", err),
-		})
-		return
-	}
-
-	// Try to match by timestamp in filename
-	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), ".json") {
-			continue
-		}
-
-		// Check if any backup metadata matches the requested timestamp
-		for _, backup := range backups {
-			if backup.Timestamp.Format(time.RFC3339Nano) == targetTimestamp {
-				// Found matching timestamp, now find the actual file
-				// The filename pattern is: backup_YYYYMMDD_HHMMSS_*_*.json
-				timestampPart := backup.Timestamp.Format("20060102_150405")
-				if strings.Contains(file.Name(), timestampPart) {
-					backupPath = filepath.Join(a.config.Storage.BackupDir, file.Name())
-					break
-				}
-			}
-		}
-		if backupPath != "" {
-			break
-		}
-	}
-
-	if backupPath == "" {
 		c.JSON(http.StatusNotFound, models.APIResponse{
 			Success: false,
-			Error:   fmt.Sprintf("Backup file not found for timestamp: %s", targetTimestamp),
+			Error:   err.Error(),
 		})
 		return
 	}
