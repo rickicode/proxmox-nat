@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -112,7 +113,8 @@ func (a *API) Handler() http.Handler {
 	r.Use(a.corsMiddleware())
 
 	// Serve SvelteKit Frontend (NO AUTH)
-	staticFS := http.FS(web.GetStaticFS())
+	rawStaticFS := web.GetStaticFS()
+	staticFS := http.FS(rawStaticFS)
 
 	// Serve _app directory (SvelteKit assets)
 	r.StaticFS("/_app", http.FS(web.GetSubFS("_app")))
@@ -124,7 +126,14 @@ func (a *API) Handler() http.Handler {
 
 	// Root handler - serve index.html (NO AUTH)
 	r.GET("/", func(c *gin.Context) {
-		c.FileFromFS("index.html", staticFS)
+		// Read file directly to avoid redirect issues
+		data, err := fs.ReadFile(rawStaticFS, "index.html")
+		if err != nil {
+			fmt.Printf("ERROR: Cannot read index.html: %v\n", err)
+			c.String(http.StatusInternalServerError, "Application error: failed to load index.html")
+			return
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
 	})
 
 	// Public API routes (NO AUTH)
@@ -199,7 +208,14 @@ func (a *API) Handler() http.Handler {
 		}
 
 		// Serve index.html for all other routes (SPA routing)
-		c.FileFromFS("index.html", staticFS)
+		// Read file directly to avoid redirect issues
+		data, err := fs.ReadFile(rawStaticFS, "index.html")
+		if err != nil {
+			fmt.Printf("ERROR: Cannot read index.html in NoRoute: %v\n", err)
+			c.String(http.StatusNotFound, "Page not found")
+			return
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
 	})
 
 	return r
