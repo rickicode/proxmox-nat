@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
+	web "proxmox-nat/frontend"
 	"proxmox-nat/internal/backup"
 	"proxmox-nat/internal/discovery"
 	"proxmox-nat/internal/models"
 	"proxmox-nat/internal/network"
 	"proxmox-nat/internal/storage"
-	"proxmox-nat/internal/web"
 
 	"github.com/gin-gonic/gin"
 )
@@ -98,8 +98,6 @@ func (a *API) Handler() http.Handler {
 	staticFS := http.FS(web.GetStaticFS())
 
 	// Serve _app directory (SvelteKit assets)
-	// We need to strip the prefix because the FS is already rooted at static/
-	// but the request comes in as /_app/...
 	r.StaticFS("/_app", http.FS(web.GetSubFS("_app")))
 
 	// Serve other static files if they exist (favicon, etc)

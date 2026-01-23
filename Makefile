@@ -1,231 +1,115 @@
-# NetNAT Makefile
+.PHONY: build install uninstall clean run help
 
 # Variables
-APP_NAME = netnat
-VERSION = 1.0.0
-MAIN_PATH = ./cmd/netnat
-BUILD_DIR = ./build
-INSTALL_PREFIX = /usr/local
-CONFIG_DIR = /etc/netnat
-SERVICE_DIR = /etc/systemd/system
+APP_NAME := netnat
+VERSION ?= 1.0.0
+BUILD_DIR := build
+INSTALL_PREFIX := /usr/local
+CONFIG_DIR := /etc/netnat
+SERVICE_DIR := /etc/systemd/system
 
-# Go build flags
-LDFLAGS = -ldflags "-X main.Version=$(VERSION) -s -w"
-GOFLAGS = -trimpath
-
-# Default target
-.PHONY: all
-all: build
-
-# Build frontend
-.PHONY: frontend
-frontend:
+# Build everything (always rebuild)
+build:
 	@echo "Building Frontend..."
-	@cd frontend && npm install && npm run build
-	@echo "Embedding Frontend..."
-	@rm -rf internal/web/static/*
-	@mkdir -p internal/web/static
-	@cp -r frontend/build/* internal/web/static/
-	@touch internal/web/static/.gitkeep
-	@echo "Frontend build complete"
-
-# Build the application
-.PHONY: build
-build: frontend
-	@echo "Building $(APP_NAME) v$(VERSION)..."
-	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=0 go build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(APP_NAME) $(MAIN_PATH)
-	@echo "Build complete: $(BUILD_DIR)/$(APP_NAME)"
-
-# Build for different architectures
-.PHONY: build-all
-build-all:
-	@echo "Building for multiple architectures..."
-	@mkdir -p $(BUILD_DIR)
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(APP_NAME)-linux-amd64 $(MAIN_PATH)
-	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(APP_NAME)-linux-arm64 $(MAIN_PATH)
-	@echo "Multi-arch build complete"
-
-# Clean build artifacts
-.PHONY: clean
-clean:
-	@echo "Cleaning build artifacts..."
-	@rm -rf $(BUILD_DIR)
-	@rm -rf frontend/node_modules
-	@rm -rf frontend/.svelte-kit
-	@rm -rf frontend/build
-	@rm -rf internal/web/static/*
-	@touch internal/web/static/.gitkeep
-	@echo "Clean complete"
-
-# Run tests
-.PHONY: test
-test:
-	@echo "Running tests..."
-	go test -v ./...
-
-# Run with race detection
-.PHONY: test-race
-test-race:
-	@echo "Running tests with race detection..."
-	go test -race -v ./...
-
-# Format code
-.PHONY: fmt
-fmt:
-	@echo "Formatting code..."
-	go fmt ./...
-	gofmt -s -w .
-
-# Lint code
-.PHONY: lint
-lint:
-	@echo "Linting code..."
-	golangci-lint run
-
-# Install dependencies
-.PHONY: deps
-deps:
-	@echo "Installing dependencies..."
-	go mod download
+	cd frontend && npm install && npm run build
+	@echo "Building Backend..."
 	go mod tidy
+	mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=0 go build -ldflags="-X main.version=$(VERSION)" -o $(BUILD_DIR)/$(APP_NAME) cmd/netnat/main.go
+	@echo "✓ Build complete: $(BUILD_DIR)/$(APP_NAME)"
 
-# Development server
-.PHONY: dev
-dev: build
-	@echo "Starting development server..."
-	sudo $(BUILD_DIR)/$(APP_NAME)
-
-# Install to system
-.PHONY: install
+# Install to system (always rebuild first)
 install: build
-	@echo "Installing $(APP_NAME) to system..."
+	@echo "Installing $(APP_NAME)..."
+	
+	# Stop service if running
+	-systemctl stop netnat 2>/dev/null || true
 	
 	# Create directories
-	sudo mkdir -p $(CONFIG_DIR)
-	sudo mkdir -p $(CONFIG_DIR)/backups
-	sudo mkdir -p /var/log/netnat
-	sudo mkdir -p /var/lib/netnat
+	mkdir -p $(CONFIG_DIR)
+	mkdir -p $(CONFIG_DIR)/backups
+	mkdir -p /var/log/netnat
+	mkdir -p /var/lib/netnat
 	
-	# Install binary (frontend is embedded, no separate web files needed)
-	sudo cp $(BUILD_DIR)/$(APP_NAME) $(INSTALL_PREFIX)/bin/$(APP_NAME)
-	sudo chmod +x $(INSTALL_PREFIX)/bin/$(APP_NAME)
+	# Install binary
+	cp $(BUILD_DIR)/$(APP_NAME) $(INSTALL_PREFIX)/bin/$(APP_NAME)
+	chmod +x $(INSTALL_PREFIX)/bin/$(APP_NAME)
 	
 	# Install configuration
-	sudo cp configs/config.yml $(CONFIG_DIR)/config.yml.example
+	cp configs/config.yml $(CONFIG_DIR)/config.yml.example
 	@if [ ! -f $(CONFIG_DIR)/config.yml ]; then \
-		sudo cp configs/config.yml $(CONFIG_DIR)/config.yml; \
-		echo "Created default configuration at $(CONFIG_DIR)/config.yml"; \
+		cp configs/config.yml $(CONFIG_DIR)/config.yml; \
+		echo "✓ Created default configuration"; \
 	else \
-		echo "Configuration file already exists at $(CONFIG_DIR)/config.yml"; \
+		echo "✓ Configuration already exists (not overwritten)"; \
 	fi
 	
 	# Install systemd service
-	sudo cp systemd/netnat.service $(SERVICE_DIR)/netnat.service
-	sudo systemctl daemon-reload
+	cp systemd/netnat.service $(SERVICE_DIR)/netnat.service
 	
 	# Set permissions
-	sudo chown -R root:root $(CONFIG_DIR)
-	sudo chmod 750 $(CONFIG_DIR)
-	sudo chmod 640 $(CONFIG_DIR)/*.yml
-	sudo chown -R root:root /var/lib/netnat
-	sudo chmod 750 /var/lib/netnat
+	chown -R root:root $(CONFIG_DIR)
+	chmod 750 $(CONFIG_DIR)
+	chmod 640 $(CONFIG_DIR)/*.yml
+	chown -R root:root /var/lib/netnat
+	chmod 750 /var/lib/netnat
 	
-	@echo "Installation complete!"
-	@echo "Configuration: $(CONFIG_DIR)/config.yml"
-	@echo "Start service: sudo systemctl start netnat"
-	@echo "Enable service: sudo systemctl enable netnat"
-
-# Uninstall from system
-.PHONY: uninstall
-uninstall:
-	@echo "Uninstalling $(APP_NAME)..."
-	
-	# Stop and disable service
-	-sudo systemctl stop netnat
-	-sudo systemctl disable netnat
-	
-	# Remove files
-	sudo rm -f $(INSTALL_PREFIX)/bin/$(APP_NAME)
-	sudo rm -f $(SERVICE_DIR)/netnat.service
-	sudo rm -rf /var/lib/netnat
-	
-	# Remove config (with confirmation)
-	@read -p "Remove configuration directory $(CONFIG_DIR)? [y/N]: " confirm; \
-	if [ "$$confirm" = "y" ] || [ "$$confirm" = "Y" ]; then \
-		sudo rm -rf $(CONFIG_DIR); \
-		echo "Configuration removed"; \
-	else \
-		echo "Configuration preserved"; \
+	# Enable IP forwarding
+	@if ! grep -q "net.ipv4.ip_forward=1" /etc/sysctl.conf; then \
+		echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf; \
+		sysctl -p; \
 	fi
 	
-	sudo systemctl daemon-reload
-	@echo "Uninstall complete!"
-
-# Package for distribution
-.PHONY: package
-package: build-all
-	@echo "Creating distribution packages..."
-	@mkdir -p $(BUILD_DIR)/dist
+	# Reload systemd and start service
+	systemctl daemon-reload
+	systemctl enable netnat
+	systemctl start netnat
 	
-	# Create tar.gz for each architecture
-	for arch in amd64 arm64; do \
-		mkdir -p $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-linux-$$arch; \
-		cp $(BUILD_DIR)/$(APP_NAME)-linux-$$arch $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-linux-$$arch/$(APP_NAME); \
-		cp -r configs $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-linux-$$arch/; \
-		cp -r systemd $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-linux-$$arch/; \
-		cp README.md $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-linux-$$arch/; \
-		cp install.sh $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-linux-$$arch/; \
-		tar -czf $(BUILD_DIR)/dist/$(APP_NAME)-$(VERSION)-linux-$$arch.tar.gz -C $(BUILD_DIR) $(APP_NAME)-$(VERSION)-linux-$$arch; \
-		rm -rf $(BUILD_DIR)/$(APP_NAME)-$(VERSION)-linux-$$arch; \
-	done
-	
-	@echo "Packages created in $(BUILD_DIR)/dist/"
+	@echo ""
+	@echo "✓ Installation complete!"
+	@echo ""
+	@echo "Service status:"
+	@systemctl status netnat --no-pager || true
+	@echo ""
+	@echo "Access web interface at: http://localhost:8080"
+	@echo "Default credentials: admin / netnat123"
 
-# Quick start (development)
-.PHONY: start
-start: deps build
-	@echo "Quick start - building and running..."
-	@echo "Note: This requires sudo privileges for network operations"
+# Uninstall from system
+uninstall:
+	@echo "Uninstalling $(APP_NAME)..."
+	systemctl stop netnat || true
+	systemctl disable netnat || true
+	rm -f $(INSTALL_PREFIX)/bin/$(APP_NAME)
+	rm -f $(SERVICE_DIR)/netnat.service
+	systemctl daemon-reload
+	@echo "✓ Uninstall complete"
+	@echo "Note: Config files in $(CONFIG_DIR) and data in /var/lib/netnat were preserved"
+
+# Clean build artifacts
+clean:
+	@echo "Cleaning build artifacts..."
+	rm -rf $(BUILD_DIR)
+	rm -rf frontend/node_modules
+	rm -rf frontend/.svelte-kit
+	rm -rf frontend/build/*
+	@echo "✓ Clean complete"
+
+# Run locally (for development)
+run: build
+	@echo "Starting $(APP_NAME) locally..."
 	sudo $(BUILD_DIR)/$(APP_NAME)
 
-# Check system requirements
-.PHONY: check
-check:
-	@echo "Checking system requirements..."
-	@command -v go >/dev/null 2>&1 || { echo "Go is required but not installed"; exit 1; }
-	@command -v iptables >/dev/null 2>&1 || { echo "Warning: iptables not found"; }
-	@command -v nft >/dev/null 2>&1 || echo "Warning: nftables not found"
-	@command -v systemctl >/dev/null 2>&1 || echo "Warning: systemctl not found"
-	@echo "System check complete"
-
 # Show help
-.PHONY: help
 help:
-	@echo "NetNAT Build System"
+	@echo "NetNAT Makefile Commands:"
 	@echo ""
-	@echo "Usage: make <target>"
+	@echo "  make build      - Build frontend and backend"
+	@echo "  make install    - Build and install to system (requires sudo)"
+	@echo "  make uninstall  - Remove from system (requires sudo)"
+	@echo "  make clean      - Clean build artifacts"
+	@echo "  make run        - Build and run locally (requires sudo)"
+	@echo "  make help       - Show this help message"
 	@echo ""
-	@echo "Targets:"
-	@echo "  build      Build the application"
-	@echo "  build-all  Build for multiple architectures"
-	@echo "  clean      Clean build artifacts"
-	@echo "  test       Run tests"
-	@echo "  test-race  Run tests with race detection"
-	@echo "  fmt        Format code"
-	@echo "  lint       Lint code"
-	@echo "  deps       Install dependencies"
-	@echo "  dev        Build and run development server"
-	@echo "  start      Quick start (deps + build + run)"
-	@echo "  install    Install to system"
-	@echo "  uninstall  Remove from system"
-	@echo "  package    Create distribution packages"
-	@echo "  check      Check system requirements"
-	@echo "  help       Show this help"
+	@echo "Quick start:"
+	@echo "  sudo make install"
 	@echo ""
-	@echo "Version: $(VERSION)"
-
-# Show version
-.PHONY: version
-version:
-	@echo "$(APP_NAME) v$(VERSION)"

@@ -62,17 +62,15 @@ tmp/
 temp/
 .tmp/
 
-# Frontend - Node modules and build artifacts
+# Frontend build artifacts
 frontend/node_modules/
 frontend/.svelte-kit/
-frontend/build/
+frontend/build/*
+!frontend/build/index.html
+!frontend/build/README.md
 frontend/package-lock.json
 frontend/.env
 frontend/.env.local
-
-# Embedded static files (generated from frontend build)
-internal/web/static/*
-!internal/web/static/.gitkeep
 
 # OS specific
 Thumbs.db
