@@ -12,11 +12,11 @@ SERVICE_DIR := /etc/systemd/system
 build:
 	@echo "Building Frontend..."
 	cd frontend && npm install && npm run build
-	@echo "Building Backend..."
+	@echo "Building Backend for Linux..."
 	go mod tidy
 	mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=0 go build -ldflags="-X main.version=$(VERSION)" -o $(BUILD_DIR)/$(APP_NAME) cmd/netnat/main.go
-	@echo "✓ Build complete: $(BUILD_DIR)/$(APP_NAME)"
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-X main.version=$(VERSION)" -o $(BUILD_DIR)/$(APP_NAME) cmd/netnat/main.go
+	@echo "✓ Build complete: $(BUILD_DIR)/$(APP_NAME) (Linux AMD64)"
 
 # Install to system (always rebuild first)
 install: build
