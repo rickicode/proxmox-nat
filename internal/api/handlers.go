@@ -103,6 +103,11 @@ func (a *API) findBackupFile(targetTimestamp string) (string, string, error) {
 func (a *API) Handler() http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
+
+	// Disable automatic redirects (fixes redirect loop)
+	r.RedirectTrailingSlash = false
+	r.RedirectFixedPath = false
+
 	r.Use(gin.Logger(), gin.Recovery())
 	r.Use(a.corsMiddleware())
 
