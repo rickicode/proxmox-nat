@@ -15,7 +15,7 @@ build:
 	@echo "Building Backend for Linux..."
 	go mod tidy
 	mkdir -p $(BUILD_DIR)
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-X main.version=$(VERSION)" -o $(BUILD_DIR)/$(APP_NAME) cmd/netnat/main.go
+	set GOOS=linux&& set GOARCH=amd64&& set CGO_ENABLED=0&& go build -ldflags="-X main.version=$(VERSION)" -o $(BUILD_DIR)/$(APP_NAME) cmd/netnat/main.go
 	@echo "✓ Build complete: $(BUILD_DIR)/$(APP_NAME) (Linux AMD64)"
 
 # Install to system (always rebuild first)
@@ -32,8 +32,7 @@ install: build
 	mkdir -p /var/lib/netnat
 	
 	# Install binary
-	cp $(BUILD_DIR)/$(APP_NAME) $(INSTALL_PREFIX)/bin/$(APP_NAME)
-	chmod +x $(INSTALL_PREFIX)/bin/$(APP_NAME)
+	install -m 755 $(BUILD_DIR)/$(APP_NAME) $(INSTALL_PREFIX)/bin/$(APP_NAME)
 	
 	# Install configuration
 	cp configs/config.yml $(CONFIG_DIR)/config.yml.example

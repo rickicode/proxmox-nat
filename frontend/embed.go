@@ -6,7 +6,7 @@ import (
 	"io/fs"
 )
 
-//go:embed all:build
+//go:embed build
 var Assets embed.FS
 
 // GetStaticFS returns the embedded static filesystem rooted at "build"

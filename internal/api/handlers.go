@@ -101,18 +101,14 @@ func (a *API) Handler() http.Handler {
 	r.StaticFS("/_app", http.FS(web.GetSubFS("_app")))
 
 	// Serve other static files if they exist (favicon, etc)
-	// This is a bit manual, but safe
 	r.GET("/favicon.png", func(c *gin.Context) {
 		c.FileFromFS("favicon.png", staticFS)
 	})
 
-	// SPA Catch-all handler
-	// Serves index.html for root and any unknown routes (except API)
-	spaHandler := func(c *gin.Context) {
+	// Root handler - serve index.html
+	r.GET("/", func(c *gin.Context) {
 		c.FileFromFS("index.html", staticFS)
-	}
-
-	r.GET("/", spaHandler)
+	})
 
 	// API routes
 	api := r.Group("/api")
@@ -171,14 +167,17 @@ func (a *API) Handler() http.Handler {
 
 	// Handle 404s by serving index.html (SPA fallback)
 	r.NoRoute(func(c *gin.Context) {
-		if !strings.HasPrefix(c.Request.URL.Path, "/api") {
-			c.FileFromFS("index.html", staticFS)
-		} else {
+		// Don't serve SPA for API routes
+		if strings.HasPrefix(c.Request.URL.Path, "/api") {
 			c.JSON(http.StatusNotFound, models.APIResponse{
 				Success: false,
 				Error:   "API endpoint not found",
 			})
+			return
 		}
+
+		// Serve index.html for all other routes (SPA routing)
+		c.FileFromFS("index.html", staticFS)
 	})
 
 	return r
