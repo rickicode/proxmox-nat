@@ -6,9 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	web "proxmox-nat/frontend"
+	"proxmox-nat/internal/auth"
 	"proxmox-nat/internal/backup"
 	"proxmox-nat/internal/discovery"
 	"proxmox-nat/internal/models"
@@ -20,26 +22,40 @@ import (
 
 // API represents the API server
 type API struct {
-	config    *models.Config
-	storage   *storage.Storage
-	network   *network.Manager
-	backup    *backup.Manager
-	discovery *discovery.VMDiscovery
-	version   string
+	config     *models.Config
+	storage    *storage.Storage
+	network    *network.Manager
+	backup     *backup.Manager
+	discovery  *discovery.VMDiscovery
+	version    string
+	jwtManager *auth.JWTManager
+	csrfTokens map[string]time.Time
+	csrfMutex  sync.RWMutex
 }
 
 // New creates a new API instance
 func New(config *models.Config, storage *storage.Storage, network *network.Manager, backup *backup.Manager, version string) *API {
+	// Generate JWT secret if not set
+	jwtSecret := config.Server.JWTSecret
+	if jwtSecret == "" {
+		jwtSecret = "netnat-default-secret-change-in-production"
+	}
+
 	api := &API{
-		config:  config,
-		storage: storage,
-		network: network,
-		backup:  backup,
-		version: version,
+		config:     config,
+		storage:    storage,
+		network:    network,
+		backup:     backup,
+		version:    version,
+		jwtManager: auth.NewJWTManager(jwtSecret, 24*time.Hour),
+		csrfTokens: make(map[string]time.Time),
 	}
 
 	// Initialize VM discovery
 	api.discovery = discovery.New(config.Network.InternalBridge)
+
+	// Start CSRF token cleanup goroutine
+	go api.cleanupExpiredCSRFTokens()
 
 	return api
 }
@@ -88,13 +104,9 @@ func (a *API) Handler() http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
-
-	// Add middleware
 	r.Use(a.corsMiddleware())
-	r.Use(a.authMiddleware())
-	r.Use(a.rateLimitMiddleware())
 
-	// Serve SvelteKit Frontend
+	// Serve SvelteKit Frontend (NO AUTH)
 	staticFS := http.FS(web.GetStaticFS())
 
 	// Serve _app directory (SvelteKit assets)
@@ -105,14 +117,19 @@ func (a *API) Handler() http.Handler {
 		c.FileFromFS("favicon.png", staticFS)
 	})
 
-	// Root handler - serve index.html
+	// Root handler - serve index.html (NO AUTH)
 	r.GET("/", func(c *gin.Context) {
 		c.FileFromFS("index.html", staticFS)
 	})
 
-	// API routes
-	api := r.Group("/api")
+	// Public API routes (NO AUTH)
+	r.POST("/api/login", a.login)
+	r.POST("/api/logout", a.logout)
 
+	// Protected API routes (WITH JWT AUTH)
+	api := r.Group("/api")
+	api.Use(a.jwtAuthMiddleware())
+	api.Use(a.rateLimitMiddleware())
 	{
 		// CSRF protection for mutating operations
 		mutating := api.Group("")

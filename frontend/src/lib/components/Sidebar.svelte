@@ -2,6 +2,8 @@
     import { appState } from '$lib/state.svelte.js';
     import Icon from '$lib/components/Icon.svelte';
     import { page } from '$app/stores';
+    import { goto } from '$app/navigation';
+    import { toast } from '$lib/components/Toast.svelte';
 
     let navigation = [
         { name: 'Dashboard', href: '/', icon: 'mdi:view-dashboard' },
@@ -11,6 +13,13 @@
     ];
 
     let currentPath = $derived($page.url.pathname);
+
+    function handleLogout() {
+        localStorage.removeItem('token');
+        localStorage.removeItem('username');
+        toast('Logged out successfully', 'success');
+        goto('/login');
+    }
 </script>
 
 <!-- Mobile Backdrop -->
@@ -61,7 +70,10 @@
     </nav>
 
     <div class="absolute bottom-0 w-full p-4 border-t border-gray-200 dark:border-dark-border">
-        <button class="flex items-center gap-3 px-4 py-3 w-full text-left rounded-lg text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors">
+        <button 
+            onclick={handleLogout}
+            class="flex items-center gap-3 px-4 py-3 w-full text-left rounded-lg text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors"
+        >
             <Icon icon="mdi:logout" class="w-5 h-5" />
             <span class="font-medium">Logout</span>
         </button>

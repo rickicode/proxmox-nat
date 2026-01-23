@@ -87,6 +87,7 @@ func DefaultConfig() *models.Config {
 			ListenAddr: "0.0.0.0:8080",
 			Username:   "admin",
 			Password:   "netnat123",
+			JWTSecret:  "netnat-default-secret-change-in-production",
 		},
 		Network: models.NetworkConfig{
 			PublicInterface: "auto",

@@ -17,6 +17,7 @@ type ServerConfig struct {
 	ListenAddr string `yaml:"listen_addr"`
 	Username   string `yaml:"username"`
 	Password   string `yaml:"password"`
+	JWTSecret  string `yaml:"jwt_secret"`
 }
 
 // NetworkConfig contains network-related configuration
