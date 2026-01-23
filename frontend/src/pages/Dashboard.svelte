@@ -1,6 +1,8 @@
 <script>
     import { api } from '$lib/api';
     import { onMount } from 'svelte';
+    import Link from '$lib/components/Link.svelte';
+    import { navigate } from '$lib/router.svelte.js';
     import Icon from '$lib/components/Icon.svelte';
     import EmptyState from '$lib/components/EmptyState.svelte';
     import SkeletonLoader from '$lib/components/SkeletonLoader.svelte';
@@ -41,12 +43,12 @@
     <!-- Stats Grid -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         {#each stats as stat}
-            <div class="bg-white dark:bg-dark-surface p-6 rounded-xl border border-gray-200 dark:border-dark-border shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
+            <div class="glass-panel p-6 rounded-xl flex items-center gap-4">
                 <div class={`p-3 rounded-lg ${stat.bg} ${stat.color}`}>
                     <Icon icon={stat.icon} class="w-6 h-6" />
                 </div>
                 <div>
-                    <p class="text-sm text-gray-500 dark:text-gray-400">{stat.label}</p>
+                    <p class="text-sm text-gray-600 dark:text-gray-300">{stat.label}</p>
                     <p class="text-2xl font-bold text-gray-900 dark:text-white">{stat.value}</p>
                 </div>
             </div>
@@ -54,13 +56,13 @@
     </div>
 
     <!-- Recent Rules Preview -->
-    <div class="bg-white dark:bg-dark-surface rounded-xl border border-gray-200 dark:border-dark-border shadow-sm overflow-hidden">
-        <div class="p-4 border-b border-gray-200 dark:border-dark-border flex justify-between items-center">
+    <div class="glass rounded-xl overflow-hidden mt-6">
+        <div class="p-4 border-b border-white/10 flex justify-between items-center">
             <h3 class="font-semibold text-gray-900 dark:text-white">Recent Rules</h3>
-            <a href="/rules" class="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1">
+            <Link href="/rules" class="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1">
                 <span>View All</span>
                 <Icon icon="mdi:arrow-right" class="w-4 h-4" />
-            </a>
+            </Link>
         </div>
 
         {#if loading}
@@ -73,7 +75,7 @@
                 title="No rules configured"
                 description="Create your first NAT rule to start managing port forwarding"
                 actionText="Add First Rule"
-                onAction={() => window.location.href = '/rules'}
+                onAction={() => navigate('/rules')}
             />
         {:else}
             <div class="divide-y divide-gray-200 dark:divide-dark-border">

@@ -1,9 +1,39 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  body {
-    @apply antialiased;
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
   }
+
+  body {
+    @apply antialiased text-gray-900 dark:bg-dark-bg dark:text-gray-100;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white/70 dark:bg-dark-surface/60 backdrop-blur-xl border border-white/20 dark:border-white/5 shadow-xl;
+  }
+
+  .glass-panel {
+    @apply bg-white/40 dark:bg-black/40 backdrop-blur-lg border border-white/30 dark:border-white/10 shadow-lg hover:shadow-xl transition-all duration-300;
+  }
+
+  .text-glow {
+    text-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+  }
+}
+
+/* Global Background Gradient */
+body {
+  background:
+    radial-gradient(at 0% 0%, rgba(239, 68, 68, 0.15) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(56, 189, 248, 0.1) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(239, 68, 68, 0.1) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, rgba(56, 189, 248, 0.1) 0px, transparent 50%);
+  background-attachment: fixed;
 }

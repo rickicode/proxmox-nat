@@ -29,26 +29,46 @@ type VMCache struct {
 }
 
 // New creates a new VM discovery instance
+// New creates a new VM discovery instance
 func New(bridgeInterface string) *VMDiscovery {
 	return &VMDiscovery{
 		bridgeInterface: bridgeInterface,
 		cache:           &VMCache{},
-		cacheTimeout:    60 * time.Second, // Cache for 60 seconds
+		cacheTimeout:    5 * time.Hour, // Current requirement: 5 hour cache
 	}
 }
 
 // DiscoverVMs discovers VMs and containers using parallel approach with caching
 func (d *VMDiscovery) DiscoverVMs() ([]models.VM, error) {
-	// Check cache first
 	d.cache.mutex.RLock()
-	if time.Since(d.cache.timestamp) < d.cacheTimeout {
-		cachedVMs := make([]models.VM, len(d.cache.vms))
-		copy(cachedVMs, d.cache.vms)
-		d.cache.mutex.RUnlock()
-		return cachedVMs, nil
-	}
+	cachedVMs := d.cache.vms
+	timestamp := d.cache.timestamp
 	d.cache.mutex.RUnlock()
 
+	// If we have cache, check if it's expired
+	if cachedVMs != nil {
+		if time.Since(timestamp) < d.cacheTimeout {
+			// Cache is fresh, return it
+			result := make([]models.VM, len(cachedVMs))
+			copy(result, cachedVMs)
+			return result, nil
+		} else {
+			// Cache is expired but exists, trigger background refresh and return stale data
+			// This ensures instant response even if cache is old
+			d.RefreshVMData()
+			
+			result := make([]models.VM, len(cachedVMs))
+			copy(result, cachedVMs)
+			return result, nil
+		}
+	}
+
+	// No cache at all (first run), perform synchronous discovery
+	return d.performDiscovery()
+}
+
+// performDiscovery execute the actual discovery process and updates cache
+func (d *VMDiscovery) performDiscovery() ([]models.VM, error) {
 	var allVMs []models.VM
 	var wg sync.WaitGroup
 	var qemuVMs, lxcVMs, arpVMs []models.VM
@@ -709,15 +729,21 @@ func (d *VMDiscovery) GetVMByIP(ip string) (*models.VM, error) {
 	return nil, fmt.Errorf("VM with IP %s not found", ip)
 }
 
-// RefreshVMData forces a refresh of VM discovery data by clearing cache
-func (d *VMDiscovery) RefreshVMData() ([]models.VM, error) {
-	// Clear cache to force fresh discovery
-	d.cache.mutex.Lock()
-	d.cache.vms = nil
-	d.cache.timestamp = time.Time{} // Zero time
-	d.cache.mutex.Unlock()
+// RefreshVMData triggers a background refresh of VM data
+func (d *VMDiscovery) RefreshVMData() {
+	go func() {
+		_, err := d.performDiscovery()
+		if err != nil {
+			fmt.Printf("Error during background discovery refresh: %v\n", err)
+		}
+	}()
+}
 
-	return d.DiscoverVMs()
+// StartBackgroundDiscovery initiates the discovery process in the background
+// Should be called on application startup
+func (d *VMDiscovery) StartBackgroundDiscovery() {
+	fmt.Println("Starting initial VM discovery in background...")
+	d.RefreshVMData()
 }
 
 // ValidateVMIP checks if a VM IP is reachable

@@ -152,13 +152,13 @@
                 type="text" 
                 placeholder="Search by name, IP, or port..." 
                 bind:value={searchQuery}
-                class="w-full pl-10 pr-4 py-3 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/50 dark:text-white shadow-sm"
+                class="w-full pl-10 pr-4 py-3 glass rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/50 dark:text-white"
             />
         </div>
         
         <select 
             bind:value={filterProtocol}
-            class="px-4 py-3 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/50 dark:text-white shadow-sm"
+            class="px-4 py-3 glass rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/50 dark:text-white"
         >
             <option value="all">All Protocols</option>
             <option value="tcp">TCP</option>
@@ -168,7 +168,7 @@
 
         <select 
             bind:value={filterStatus}
-            class="px-4 py-3 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/50 dark:text-white shadow-sm"
+            class="px-4 py-3 glass rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500/50 dark:text-white"
         >
             <option value="all">All Status</option>
             <option value="enabled">Enabled</option>
@@ -183,17 +183,19 @@
             {error}
         </div>
     {:else if filteredRules.length === 0}
-        <EmptyState 
-            icon={searchQuery || filterProtocol !== 'all' || filterStatus !== 'all' ? 'mdi:filter-off' : 'mdi:network-off'}
-            title={searchQuery || filterProtocol !== 'all' || filterStatus !== 'all' ? 'No rules found' : 'No NAT rules yet'}
-            description={searchQuery || filterProtocol !== 'all' || filterStatus !== 'all' ? 'Try adjusting your search or filters' : 'Create your first NAT rule to get started'}
-            actionText={searchQuery || filterProtocol !== 'all' || filterStatus !== 'all' ? '' : 'Add First Rule'}
-            onAction={() => openModal()}
-        />
+        <div class="glass p-8 rounded-xl text-center">
+            <EmptyState 
+                icon={searchQuery || filterProtocol !== 'all' || filterStatus !== 'all' ? 'mdi:filter-off' : 'mdi:network-off'}
+                title={searchQuery || filterProtocol !== 'all' || filterStatus !== 'all' ? 'No rules found' : 'No NAT rules yet'}
+                description={searchQuery || filterProtocol !== 'all' || filterStatus !== 'all' ? 'Try adjusting your search or filters' : 'Create your first NAT rule to get started'}
+                actionText={searchQuery || filterProtocol !== 'all' || filterStatus !== 'all' ? '' : 'Add First Rule'}
+                onAction={() => openModal()}
+            />
+        </div>
     {:else}
         <div class="grid gap-4">
             {#each filteredRules as rule}
-                <div class="bg-white dark:bg-dark-surface p-4 rounded-xl border border-gray-200 dark:border-dark-border shadow-sm hover:shadow-md transition-shadow">
+                <div class="glass-panel p-4 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div class="flex-1 space-y-2">
                             <div class="flex items-center gap-3">

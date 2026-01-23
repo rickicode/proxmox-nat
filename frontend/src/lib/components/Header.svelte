@@ -1,7 +1,7 @@
 <script>
     import { appState } from '$lib/state.svelte.js';
     import Icon from '$lib/components/Icon.svelte';
-    import { page } from '$app/stores';
+    import { router } from '$lib/router.svelte.js';
 
     let pageTitles = {
         '/': 'Dashboard',
@@ -10,10 +10,10 @@
         '/settings': 'Settings'
     };
 
-    let currentTitle = $derived(pageTitles[$page.url.pathname] || 'Dashboard');
+    let currentTitle = $derived(pageTitles[router.path] || 'Dashboard');
 </script>
 
-<header class="sticky top-0 z-10 flex items-center justify-between h-16 px-4 bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border shadow-sm">
+<header class="sticky top-0 z-10 flex items-center justify-between h-16 px-4 glass my-4 mx-4 md:mx-6 rounded-2xl">
     <div class="flex items-center gap-4">
         <button 
             class="p-2 -ml-2 text-gray-600 rounded-lg lg:hidden hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-dark-bg"

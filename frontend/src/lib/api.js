@@ -1,17 +1,16 @@
-import { browser } from '$app/environment';
-import { goto } from '$app/navigation';
+import { navigate } from '$lib/router.svelte.js';
 
 const API_BASE = '/api';
 
 class ApiClient {
     async request(endpoint, options = {}) {
-        if (!browser) return null;
+        if (typeof window === 'undefined') return null;
 
         const url = `${API_BASE}${endpoint}`;
-        
+
         // Get token from localStorage
         const token = localStorage.getItem('token');
-        
+
         const headers = {
             'Content-Type': 'application/json',
             ...options.headers
@@ -24,12 +23,12 @@ class ApiClient {
 
         try {
             const response = await fetch(url, { ...options, headers });
-            
+
             // Handle 401 Unauthorized - redirect to login
             if (response.status === 401) {
                 localStorage.removeItem('token');
                 localStorage.removeItem('username');
-                goto('/login');
+                navigate('/login');
                 throw new Error('Unauthorized');
             }
 

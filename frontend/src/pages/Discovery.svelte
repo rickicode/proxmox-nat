@@ -26,10 +26,12 @@
         try {
             const res = await api.post('/vms/refresh');
             if (res.success) {
-                vms = res.data || [];
+                // Background refresh started
+                // Wait a bit then reload to see if updates are ready, or just show current cache
+                setTimeout(loadVMs, 2000); 
             }
         } catch (e) {
-            alert('Failed to refresh: ' + e.message);
+            console.error('Failed to trigger refresh:', e);
         } finally {
             refreshing = false;
         }
@@ -63,8 +65,9 @@
     {:else}
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {#each vms as vm}
-                <div class="bg-white dark:bg-dark-surface p-6 rounded-xl border border-gray-200 dark:border-dark-border shadow-sm hover:shadow-md transition-all group">
-                    <div class="flex items-start justify-between mb-4">
+                <div class="glass-panel p-6 rounded-xl flex flex-col group relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-primary-500/10 to-transparent blur-2xl -mr-16 -mt-16 pointer-events-none"></div>
+                    <div class="flex items-start justify-between mb-4 relative z-10">
                         <div class={`p-3 rounded-lg ${vm.type === 'lxc' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400' : 'bg-blue-100 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400'}`}>
                             {#if vm.type === 'lxc'}
                                 <Icon icon="mdi:harddisk" class="w-6 h-6" />

@@ -49,6 +49,7 @@ func New(config *models.Config, storage *storage.Storage, network *network.Manag
 
 	// Initialize VM discovery
 	api.discovery = discovery.New(config.Network.InternalBridge)
+	api.discovery.StartBackgroundDiscovery()
 
 	// Start CSRF token cleanup goroutine
 	go api.cleanupExpiredCSRFTokens()

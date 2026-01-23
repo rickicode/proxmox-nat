@@ -6,12 +6,12 @@ import (
 	"io/fs"
 )
 
-//go:embed build
+//go:embed dist
 var Assets embed.FS
 
-// GetStaticFS returns the embedded static filesystem rooted at "build"
+// GetStaticFS returns the embedded static filesystem rooted at "dist"
 func GetStaticFS() fs.FS {
-	static, err := fs.Sub(Assets, "build")
+	static, err := fs.Sub(Assets, "dist")
 	if err != nil {
 		panic(fmt.Sprintf("Failed to get static filesystem: %v. Make sure frontend is built first (run 'make frontend')", err))
 	}
@@ -20,7 +20,7 @@ func GetStaticFS() fs.FS {
 
 // GetSubFS returns a subdirectory of the static filesystem
 func GetSubFS(path string) fs.FS {
-	sub, err := fs.Sub(Assets, "build/"+path)
+	sub, err := fs.Sub(Assets, "dist/"+path)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to get sub filesystem for '%s': %v", path, err))
 	}

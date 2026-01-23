@@ -1,5 +1,5 @@
 <script>
-	import { goto } from '$app/navigation';
+	import { navigate } from '$lib/router.svelte.js';
 	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { toast } from '$lib/components/Toast.svelte';
@@ -13,7 +13,7 @@
 		// Check if already logged in
 		const token = localStorage.getItem('token');
 		if (token) {
-			goto('/');
+			navigate('/', { replace: true });
 		}
 	});
 
@@ -45,7 +45,7 @@
 				localStorage.setItem('username', username);
 				
 				toast('Login successful!', 'success');
-				goto('/');
+				navigate('/', { replace: true });
 			} else {
 				toast(data.error || 'Login failed', 'error');
 			}
@@ -63,19 +63,19 @@
 	}
 </script>
 
-<div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100 dark:from-gray-900 dark:to-gray-800 p-4">
+<div class="min-h-screen flex items-center justify-center p-4">
 	<div class="w-full max-w-md">
 		<!-- Logo & Title -->
 		<div class="text-center mb-8">
-			<div class="inline-flex items-center justify-center w-16 h-16 bg-primary-600 rounded-2xl mb-4 shadow-lg">
+			<div class="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-primary-500 to-primary-600 rounded-2xl mb-4 shadow-lg shadow-primary-500/30">
 				<Icon icon="mdi:network-outline" class="w-10 h-10 text-white" />
 			</div>
-			<h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">NetNAT</h1>
-			<p class="text-gray-600 dark:text-gray-400">Port Forwarding Manager</p>
+			<h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2 text-glow">NetNAT</h1>
+			<p class="text-gray-600 dark:text-gray-300">Port Forwarding Manager</p>
 		</div>
 
 		<!-- Login Card -->
-		<div class="bg-white dark:bg-dark-surface rounded-2xl shadow-2xl p-8 border border-gray-200 dark:border-dark-border">
+		<div class="glass rounded-2xl p-8">
 			<h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">Sign In</h2>
 
 			<div class="space-y-4">

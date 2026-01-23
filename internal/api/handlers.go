@@ -23,15 +23,18 @@ func (a *API) Handler() http.Handler {
 	e.HidePort = true
 
 	// Middleware
-	e.Use(middleware.Logger())
+	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+		Format: "${time_custom} | ${status} | ${method} | ${uri} | ${latency_human}\n",
+		CustomTimeFormat: "2006-01-02 15:04:05",
+	}))
 	e.Use(middleware.Recover())
 	e.Use(a.corsMiddleware())
 
 	// Get embedded filesystem
 	rawStaticFS := web.GetStaticFS()
 
-	// Serve SvelteKit static assets (_app directory)
-	e.GET("/_app/*", echo.WrapHandler(http.FileServer(http.FS(web.GetSubFS("_app")))))
+	// Serve Vite static assets (assets directory)
+	e.GET("/assets/*", echo.WrapHandler(http.StripPrefix("/assets/", http.FileServer(http.FS(web.GetSubFS("assets"))))))
 
 	// Serve favicon
 	e.GET("/favicon.png", func(c echo.Context) error {
@@ -470,14 +473,11 @@ func (a *API) getVM(c echo.Context) error {
 }
 
 func (a *API) refreshVMs(c echo.Context) error {
-	vms, err := a.discovery.RefreshVMData()
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, models.APIResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to refresh VMs: %v", err),
-		})
-	}
-	return c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "VMs refreshed successfully", Data: vms})
+	a.discovery.RefreshVMData()
+	return c.JSON(http.StatusOK, models.APIResponse{
+		Success: true,
+		Message: "VM refresh started in background",
+	})
 }
 
 func (a *API) enableNAT(c echo.Context) error {

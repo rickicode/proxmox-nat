@@ -1,8 +1,8 @@
 <script>
     import { appState } from '$lib/state.svelte.js';
     import Icon from '$lib/components/Icon.svelte';
-    import { page } from '$app/stores';
-    import { goto } from '$app/navigation';
+    import Link from '$lib/components/Link.svelte';
+    import { router, navigate } from '$lib/router.svelte.js';
     import { toast } from '$lib/components/Toast.svelte';
 
     let navigation = [
@@ -12,13 +12,13 @@
         { name: 'Settings', href: '/settings', icon: 'mdi:cog' },
     ];
 
-    let currentPath = $derived($page.url.pathname);
+    let currentPath = $derived(router.path);
 
     function handleLogout() {
         localStorage.removeItem('token');
         localStorage.removeItem('username');
         toast('Logged out successfully', 'success');
-        goto('/login');
+        navigate('/login');
     }
 </script>
 
@@ -35,14 +35,14 @@
 
 <aside 
     class={`
-        fixed inset-y-0 left-0 z-30 w-64 transform bg-white dark:bg-dark-surface border-r border-gray-200 dark:border-dark-border transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0
-        ${appState.sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+        fixed inset-y-4 left-4 z-30 w-64 transform glass rounded-2xl transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 lg:m-4 lg:mr-0
+        ${appState.sidebarOpen ? 'translate-x-0' : '-translate-x-[120%]'}
     `}
 >
-    <div class="flex items-center justify-between h-16 px-6 border-b border-gray-200 dark:border-dark-border">
+    <div class="flex items-center justify-between h-16 px-6 border-b border-white/10">
         <div class="flex items-center gap-2 font-bold text-xl text-primary-600 dark:text-primary-500">
             <Icon icon="mdi:network-outline" class="w-8 h-8" />
-            <span>NetNAT</span>
+            <span class="tracking-tight">NetNAT</span>
         </div>
         <button 
             class="lg:hidden text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -54,8 +54,9 @@
 
     <nav class="flex flex-col gap-1 p-4">
         {#each navigation as item}
-            <a 
+            <Link 
                 href={item.href}
+                onclick={() => appState.setSidebar(false)}
                 class={`
                     flex items-center gap-3 px-4 py-3 rounded-lg transition-colors
                     ${currentPath === item.href 
@@ -65,11 +66,11 @@
             >
                 <Icon icon={item.icon} class="w-5 h-5" />
                 <span class="font-medium">{item.name}</span>
-            </a>
+            </Link>
         {/each}
     </nav>
 
-    <div class="absolute bottom-0 w-full p-4 border-t border-gray-200 dark:border-dark-border">
+    <div class="absolute bottom-0 w-full p-4 border-t border-white/10">
         <button 
             onclick={handleLogout}
             class="flex items-center gap-3 px-4 py-3 w-full text-left rounded-lg text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors"
