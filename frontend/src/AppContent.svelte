@@ -25,6 +25,7 @@
     import Rules from './pages/Rules.svelte';
     import Discovery from './pages/Discovery.svelte';
     import Settings from './pages/Settings.svelte';
+    import ErrorPage from '$lib/components/ErrorPage.svelte';
     
     // Reactive check for login page
     let isLoginPage = $derived(router.path === '/login');
@@ -51,12 +52,15 @@
     });
     
     // Determine which page to show
-    let CurrentPage = $derived({
+    const routes = {
         '/': Dashboard,
         '/rules': Rules,
         '/discovery': Discovery,
         '/settings': Settings
-    }[router.path] || Dashboard);
+    };
+    
+    let CurrentPage = $derived(routes[router.path] || ErrorPage);
+    let isNotFound = $derived(!routes[router.path] && router.path !== '/login');
 </script>
 
 {#if isLoginPage}
@@ -68,8 +72,17 @@
 
         <div class="relative flex flex-col flex-1 overflow-y-auto overflow-x-hidden">
             <Header />
-            <main class="w-full flex-grow p-4 md:p-6 max-w-7xl mx-auto z-10">
-                <CurrentPage />
+            <main class="w-full flex-grow p-4 md:p-6 z-10">
+                {#if isNotFound}
+                    <CurrentPage error={{
+                        code: 404,
+                        title: 'Page Not Found',
+                        message: 'The page you are looking for does not exist.',
+                        icon: 'mdi:alert-circle-outline'
+                    }} />
+                {:else}
+                    <CurrentPage />
+                {/if}
             </main>
         </div>
     </div>

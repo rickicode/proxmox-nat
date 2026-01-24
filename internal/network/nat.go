@@ -17,6 +17,7 @@ type Manager struct {
 	config            *models.Config
 	interfaceDetector *InterfaceDetector
 	publicInterface   string
+	trafficMonitor    *TrafficMonitor
 	mutex             sync.RWMutex
 }
 
@@ -36,14 +37,21 @@ func New(config *models.Config) (*Manager, error) {
 		config:            config,
 		interfaceDetector: detector,
 		publicInterface:   publicInterface,
+		trafficMonitor:    NewTrafficMonitor(publicInterface),
 	}
 
-	// Configure vnstat for traffic monitoring
-	if err := manager.configureVnstat(publicInterface); err != nil {
-		fmt.Printf("Warning: Failed to configure vnstat: %v\n", err)
-	}
+	// Start traffic monitoring
+	manager.trafficMonitor.Start()
 
 	return manager, nil
+}
+
+// GetTrafficData returns the current traffic history
+func (m *Manager) GetTrafficData() []TrafficStats {
+	if m.trafficMonitor == nil {
+		return []TrafficStats{}
+	}
+	return m.trafficMonitor.GetHistory()
 }
 
 // EnableIPForwarding enables IPv4 forwarding
@@ -254,7 +262,7 @@ func (m *Manager) checkIptablesNAT() (bool, error) {
 }
 
 // ApplyRules applies DNAT rules
-func (m *Manager) ApplyRules(rules []models.Rule) error {
+func (m *Manager) ApplyRules(rules []models.Rule, resolver func(string) (string, error)) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -266,6 +274,18 @@ func (m *Manager) ApplyRules(rules []models.Rule) error {
 	// Apply new rules
 	for _, rule := range rules {
 		if rule.Enabled {
+			// Resolve VM IP if bound
+			if rule.TargetVMID != "" && resolver != nil {
+				ip, err := resolver(rule.TargetVMID)
+				if err == nil && ip != "" {
+					rule.InternalIP = ip
+				} else {
+					fmt.Printf("Warning: Failed to resolve IP for bound VM %s: %v\n", rule.TargetVMID, err)
+					// Skip applying rule if resolution fails to avoid broken NAT
+					continue
+				}
+			}
+
 			if err := m.addDNATRule(rule); err != nil {
 				return fmt.Errorf("failed to apply rule %s: %w", rule.ID, err)
 			}
@@ -574,6 +594,13 @@ func (m *Manager) RefreshPublicInterface() error {
 	if newInterface != m.publicInterface {
 		fmt.Printf("Public interface changed from %s to %s\n", m.publicInterface, newInterface)
 		m.publicInterface = newInterface
+
+		// Restart traffic monitor with new interface
+		if m.trafficMonitor != nil {
+			m.trafficMonitor.Stop()
+		}
+		m.trafficMonitor = NewTrafficMonitor(newInterface)
+		m.trafficMonitor.Start()
 	}
 
 	return nil

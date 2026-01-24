@@ -15,6 +15,7 @@
 
     let configContent = $state('');
     let saving = $state(false);
+    let resetting = $state(false);
 
     async function loadData() {
         try {
@@ -87,6 +88,25 @@
         }
     }
 
+    async function handleReset() {
+        if (!confirm('Are you sure you want to reset configuration to default?\n\nThis will overwrite all current settings and you will need to log in again with default credentials (admin/netnat123).')) return;
+        
+        resetting = true;
+        try {
+            const res = await api.post('/config/reset');
+            if (res.success) {
+                toast('Configuration reset successfully', 'success');
+                // Logout and redirect
+                localStorage.removeItem('token');
+                localStorage.removeItem('username');
+                setTimeout(() => window.location.href = '/login', 1500);
+            }
+        } catch (e) {
+            toast(e.message || 'Failed to reset configuration', 'error');
+            resetting = false;
+        }
+    }
+
     onMount(loadData);
 </script>
 
@@ -137,6 +157,37 @@
         <div class="px-6 py-3 bg-yellow-50 dark:bg-yellow-900/10 border-t border-yellow-100 dark:border-yellow-900/20 text-xs text-yellow-700 dark:text-yellow-400 flex items-center gap-2">
             <Icon icon="mdi:alert" class="w-4 h-4" />
             <span>Warning: Incorrect configuration may disrupt service. Some changes require a server restart to take effect.</span>
+        </div>
+    </div>
+
+    <!-- Danger Zone -->
+    <div class="glass rounded-xl overflow-hidden border border-red-200 dark:border-red-900/30">
+        <div class="p-6 border-b border-white/10 flex justify-between items-center bg-red-50 dark:bg-red-900/10">
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-red-100 dark:bg-red-900/20 text-red-600 rounded-lg">
+                    <Icon icon="mdi:alert-octagon" class="w-6 h-6" />
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Danger Zone</h3>
+                    <p class="text-sm text-gray-600 dark:text-gray-400">Irreversible actions</p>
+                </div>
+            </div>
+            <button 
+                onclick={handleReset}
+                disabled={resetting}
+                class="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50"
+            >
+                {#if resetting}
+                    <Icon icon="mdi:loading" class="w-4 h-4 animate-spin" />
+                    <span>Resetting...</span>
+                {:else}
+                    <Icon icon="mdi:restore" class="w-4 h-4" />
+                    <span>Reset to Default</span>
+                {/if}
+            </button>
+        </div>
+        <div class="p-6 text-sm text-gray-600 dark:text-gray-400">
+            <p><strong>Reset Configuration:</strong> This will restore all settings to their factory defaults. Your custom rules, backups, and network settings will be overwritten. You will be logged out immediately.</p>
         </div>
     </div>
 

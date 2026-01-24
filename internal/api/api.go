@@ -54,6 +54,29 @@ func New(config *models.Config, storage *storage.Storage, network *network.Manag
 	// Start CSRF token cleanup goroutine
 	go api.cleanupExpiredCSRFTokens()
 
+	// Register VM update callback to refresh dynamic rules
+	api.discovery.RegisterUpdateCallback(func(vms []models.VM) {
+		// Define resolver
+		resolver := func(vmid string) (string, error) {
+			for _, vm := range vms {
+				if vm.ID == vmid {
+					return vm.IP, nil
+				}
+			}
+			return "", fmt.Errorf("VM not found")
+		}
+
+		// Re-apply rules with new VM data
+		rulesData, err := api.storage.LoadRules()
+		if err == nil {
+			if err := api.network.ApplyRules(rulesData.Rules, resolver); err != nil {
+				fmt.Printf("Warning: Failed to refresh rules after VM update: %v\n", err)
+			} else {
+				fmt.Println("Refreshed NAT rules based on updated VM data")
+			}
+		}
+	})
+
 	return api
 }
 
@@ -132,4 +155,9 @@ func (a *API) validateRule(rule models.Rule) error {
 	}
 
 	return nil
+}
+
+// GetDiscovery returns the discovery module instance
+func (a *API) GetDiscovery() *discovery.VMDiscovery {
+	return a.discovery
 }

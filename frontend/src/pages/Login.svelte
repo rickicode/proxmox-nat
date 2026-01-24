@@ -67,8 +67,8 @@
 	<div class="w-full max-w-md">
 		<!-- Logo & Title -->
 		<div class="text-center mb-8">
-			<div class="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-primary-500 to-primary-600 rounded-2xl mb-4 shadow-lg shadow-primary-500/30">
-				<Icon icon="mdi:network-outline" class="w-10 h-10 text-white" />
+			<div class="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-primary-500 to-primary-600 rounded-2xl mb-4 shadow-lg shadow-primary-500/30 p-3">
+				<img src="/logo.svg" alt="NetNAT" class="w-full h-full" />
 			</div>
 			<h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2 text-glow">NetNAT</h1>
 			<p class="text-gray-600 dark:text-gray-300">Port Forwarding Manager</p>

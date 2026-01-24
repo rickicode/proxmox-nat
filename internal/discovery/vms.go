@@ -19,6 +19,8 @@ type VMDiscovery struct {
 	bridgeInterface string
 	cache           *VMCache
 	cacheTimeout    time.Duration
+	updateCallbacks []func([]models.VM)
+	callbackMutex   sync.RWMutex
 }
 
 // VMCache stores cached VM data with timestamps
@@ -115,7 +117,27 @@ func (d *VMDiscovery) performDiscovery() ([]models.VM, error) {
 	d.cache.timestamp = time.Now()
 	d.cache.mutex.Unlock()
 
+	// Notify callbacks
+	d.notifyCallbacks(allVMs)
+
 	return allVMs, nil
+}
+
+// RegisterUpdateCallback registers a function to be called when VM data is refreshed
+func (d *VMDiscovery) RegisterUpdateCallback(callback func([]models.VM)) {
+	d.callbackMutex.Lock()
+	defer d.callbackMutex.Unlock()
+	d.updateCallbacks = append(d.updateCallbacks, callback)
+}
+
+// notifyCallbacks calls all registered callbacks with new data
+func (d *VMDiscovery) notifyCallbacks(vms []models.VM) {
+	d.callbackMutex.RLock()
+	defer d.callbackMutex.RUnlock()
+	
+	for _, cb := range d.updateCallbacks {
+		go cb(vms)
+	}
 }
 
 // discoverQEMUVMs discovers QEMU VMs using qm command and parallel guest agent calls
@@ -165,9 +187,13 @@ func (d *VMDiscovery) discoverQEMUVMs() ([]models.VM, error) {
 		return []models.VM{}, nil
 	}
 
-	// Create VMs and get IPs in parallel
+	// Create VMs and get IPs in parallel with timeout
 	vms := make([]models.VM, len(vmInfos))
 	var wg sync.WaitGroup
+
+	// Create a context with timeout for all goroutines
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 
 	for i, vmInfo := range vmInfos {
 		vms[i] = models.VM{
@@ -183,9 +209,26 @@ func (d *VMDiscovery) discoverQEMUVMs() ([]models.VM, error) {
 			wg.Add(1)
 			go func(index int, vmid string) {
 				defer wg.Done()
-				if ip, err := d.getQEMUVMIP(vmid); err == nil && ip != "" {
-					vms[index].IP = ip
-					vms[index].Source = "agent"
+				
+				// Use channel to implement timeout for this specific goroutine
+				done := make(chan struct{})
+				var ip string
+				var err error
+				
+				go func() {
+					ip, err = d.getQEMUVMIPWithContext(ctx, vmid)
+					close(done)
+				}()
+				
+				select {
+				case <-done:
+					if err == nil && ip != "" {
+						vms[index].IP = ip
+						vms[index].Source = "agent"
+					}
+				case <-ctx.Done():
+					// Timeout or cancellation - skip this VM
+					fmt.Printf("VM %s: Discovery timed out\n", vmid)
 				}
 			}(i, vmInfo.vmid)
 		}
@@ -196,36 +239,13 @@ func (d *VMDiscovery) discoverQEMUVMs() ([]models.VM, error) {
 }
 
 // getQEMUVMIP gets VM IP using QEMU guest agent with timeout
-func (d *VMDiscovery) getQEMUVMIP(vmid string) (string, error) {
-	// First check if guest agent is enabled and running
-	checkCmd := exec.Command("qm", "guest", "exec", vmid, "test", "echo", "test")
-	if output, err := checkCmd.CombinedOutput(); err != nil {
-		// Guest agent might not be running or not enabled
-		fmt.Printf("VM %s: Guest agent not available: %v (output: %s)\n", vmid, err, string(output))
-
-		// Try alternative check methods
-		if d.checkGuestAgentAlternative(vmid) {
-			fmt.Printf("VM %s: Guest agent available via alternative check\n", vmid)
-		} else {
-			return "", fmt.Errorf("guest agent not available")
-		}
-	}
-
-	// Try to get IP address using fence agent first (more reliable)
-	cmd := exec.Command("qm", "fence", "ack", vmid)
-	if output, err := cmd.Output(); err == nil {
-		if ip := d.extractIPFromOutput(string(output)); ip != "" {
-			return ip, nil
-		}
-	}
-
-	// Try multiple methods to get IP address
-
-	// Method 1: network-get-interfaces (most reliable)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	cmd = exec.CommandContext(ctx, "qm", "guest", "cmd", vmid, "network-get-interfaces")
+// getQEMUVMIPWithContext gets VM IP using QEMU guest agent with context and timeout
+func (d *VMDiscovery) getQEMUVMIPWithContext(ctx context.Context, vmid string) (string, error) {
+	// Skip guest agent availability check - it can hang
+	// Instead, try to get IP directly with short timeout
+	
+	// Method 1: network-get-interfaces (most reliable if guest agent is running)
+	cmd := exec.CommandContext(ctx, "qm", "guest", "cmd", vmid, "network-get-interfaces")
 	output, err := cmd.Output()
 	if err == nil {
 		if ip := d.parseGuestAgentInterfaces(output); ip != "" {
@@ -233,17 +253,24 @@ func (d *VMDiscovery) getQEMUVMIP(vmid string) (string, error) {
 		}
 	}
 
-	// Method 2: Get IP from arp-scan of VM
+	// Method 2: Get IP from ARP table (works even without guest agent)
 	if ip := d.getVMIPFromARP(vmid); ip != "" {
 		return ip, nil
 	}
 
-	// Method 3: Try to ping common VM names
+	// Method 3: Try to get from Proxmox config
 	if ip := d.getVMIPFromProxmoxConfig(vmid); ip != "" {
 		return ip, nil
 	}
 
 	return "", fmt.Errorf("no IP found for VM %s", vmid)
+}
+
+// getQEMUVMIP is kept for backward compatibility
+func (d *VMDiscovery) getQEMUVMIP(vmid string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return d.getQEMUVMIPWithContext(ctx, vmid)
 }
 
 // parseGuestAgentInterfaces parses network-get-interfaces JSON output

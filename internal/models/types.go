@@ -57,7 +57,8 @@ type Rule struct {
 	ExternalPort int       `json:"external_port"`
 	InternalIP   string    `json:"internal_ip"`
 	InternalPort int       `json:"internal_port"`
-	Protocol     string    `json:"protocol"` // tcp, udp, both
+	TargetVMID   string    `json:"target_vm_id,omitempty"` // ID of the VM if bound dynamically
+	Protocol     string    `json:"protocol"`               // tcp, udp, both
 	Enabled      bool      `json:"enabled"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`

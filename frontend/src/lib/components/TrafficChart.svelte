@@ -22,26 +22,31 @@
                 labels: [],
                 datasets: [
                     {
-                        label: 'RX (Download)',
+                        label: 'Download (RX)',
                         data: [],
                         borderColor: 'rgb(59, 130, 246)', // blue-500
                         backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                        tension: 0.4,
-                        fill: true
+                        tension: 0.3,
+                        fill: true,
+                        pointRadius: 0,
+                        borderWidth: 2
                     },
                     {
-                        label: 'TX (Upload)',
+                        label: 'Upload (TX)',
                         data: [],
                         borderColor: 'rgb(168, 85, 247)', // purple-500
                         backgroundColor: 'rgba(168, 85, 247, 0.1)',
-                        tension: 0.4,
-                        fill: true
+                        tension: 0.3,
+                        fill: true,
+                        pointRadius: 0,
+                        borderWidth: 2
                     }
                 ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: false, // Diable animation for performance
                 interaction: {
                     mode: 'index',
                     intersect: false,
@@ -61,7 +66,7 @@
                                     label += ': ';
                                 }
                                 if (context.parsed.y !== null) {
-                                    label += formatBytes(context.parsed.y);
+                                    label += formatBytes(context.parsed.y) + '/s';
                                 }
                                 return label;
                             }
@@ -71,10 +76,12 @@
                 scales: {
                     x: {
                         grid: {
-                            color: document.documentElement.classList.contains('dark') ? '#374151' : '#e5e7eb'
+                            color: document.documentElement.classList.contains('dark') ? '#374151' : '#e5e7eb',
+                            display: false // Hide x grid for cleaner look
                         },
                         ticks: {
-                            color: document.documentElement.classList.contains('dark') ? '#9ca3af' : '#4b5563'
+                            color: document.documentElement.classList.contains('dark') ? '#9ca3af' : '#4b5563',
+                            maxTicksLimit: 6
                         }
                     },
                     y: {
@@ -85,7 +92,7 @@
                         ticks: {
                             color: document.documentElement.classList.contains('dark') ? '#9ca3af' : '#4b5563',
                             callback: function(value) {
-                                return formatBytes(value);
+                                return formatBytes(value) + '/s';
                             }
                         }
                     }
@@ -106,14 +113,14 @@
     function updateChart(data) {
         if (!data || !chart) return;
 
-        // Process daily history (reverse it so oldest is first)
-        const sortedData = [...data].reverse();
+        // Data is already sorted by time (oldest first) from backend
+        // We might want to limit to 60 points if backend sends more
         
-        chart.data.labels = sortedData.map(d => formatDate(d.date));
-        chart.data.datasets[0].data = sortedData.map(d => d.rx_bytes);
-        chart.data.datasets[1].data = sortedData.map(d => d.tx_bytes);
+        chart.data.labels = data.map(d => formatTime(d.timestamp));
+        chart.data.datasets[0].data = data.map(d => d.rx_rate);
+        chart.data.datasets[1].data = data.map(d => d.tx_rate);
         
-        chart.update();
+        chart.update('none'); // 'none' mode prevents animation for smooth updates
     }
 
     function formatBytes(bytes) {
@@ -124,14 +131,9 @@
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
-    function formatDate(dateStr) {
-        // Simple date formatting (YYYY-MM-DD to DD/MM)
-        try {
-            const date = new Date(dateStr);
-            return `${date.getDate()}/${date.getMonth() + 1}`;
-        } catch (e) {
-            return dateStr;
-        }
+    function formatTime(timestamp) {
+        const date = new Date(timestamp * 1000);
+        return date.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
     }
 </script>
 

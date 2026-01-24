@@ -1,6 +1,7 @@
 export class AppState {
     darkMode = $state(true);
     sidebarOpen = $state(false);
+    prefillRule = $state(null);
 
     toggleSidebar() {
         this.sidebarOpen = !this.sidebarOpen;

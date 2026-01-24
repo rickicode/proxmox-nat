@@ -74,7 +74,8 @@ func main() {
 	fmt.Printf("%s v%s - NAT & Port Forwarding Manager\n", AppName, Version)
 
 	// Load configuration
-	cfg, err := config.LoadFromFile(*configPath)
+	// Load configuration
+	cfg, err := config.LoadOrGenerate(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
@@ -112,7 +113,18 @@ func main() {
 	if err != nil {
 		log.Printf("Warning: Failed to load existing rules: %v", err)
 	} else {
-		if err := netMgr.ApplyRules(rules.Rules); err != nil {
+		// Create resolver wrapper using discovery module
+		// Need to initialize discovery first
+		vmDiscovery := api.New(cfg, store, netMgr, backupMgr, Version).GetDiscovery()
+		resolver := func(vmid string) (string, error) {
+			vm, err := vmDiscovery.GetVMByID(vmid)
+			if err != nil {
+				return "", err
+			}
+			return vm.IP, nil
+		}
+
+		if err := netMgr.ApplyRules(rules.Rules, resolver); err != nil {
 			log.Printf("Warning: Failed to apply existing rules: %v", err)
 		} else {
 			log.Printf("Restored %d rules", len(rules.Rules))

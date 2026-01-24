@@ -17,6 +17,7 @@
 
     let rules = $state([]);
     let trafficHistory = $state(null);
+    let currentRates = $state(null);
     let loading = $state(true);
     let trafficLoading = $state(true);
     let statusInterval;
@@ -52,14 +53,33 @@
     async function loadTraffic() {
         try {
             const res = await api.get('/network/traffic');
-            if (res.success && res.data && res.data.total_traffic && res.data.total_traffic.daily_history) {
-                trafficHistory = res.data.total_traffic.daily_history;
+            if (res.success && res.data) {
+                // Update chart data
+                if (res.data.history) {
+                    trafficHistory = res.data.history;
+                }
+                
+                // Update live rates
+                if (typeof res.data.current_rx_rate === 'number') {
+                    currentRates = {
+                        rx: res.data.current_rx_rate,
+                        tx: res.data.current_tx_rate
+                    };
+                }
             }
         } catch (e) {
             console.error('Traffic load error:', e);
         } finally {
             trafficLoading = false;
         }
+    }
+
+    function formatBytes(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
     async function loadInitialData() {
@@ -77,8 +97,8 @@
         // Refresh system status every 5 seconds
         statusInterval = setInterval(loadSystemStatus, 5000);
         
-        // Refresh traffic every 30 seconds
-        trafficInterval = setInterval(loadTraffic, 30000);
+        // Refresh traffic every 1 second for live updates
+        trafficInterval = setInterval(loadTraffic, 1000);
     });
 
     onDestroy(() => {
@@ -109,9 +129,23 @@
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Traffic Chart -->
         <div class="lg:col-span-2 bg-white dark:bg-dark-surface rounded-xl border border-gray-200 dark:border-dark-border shadow-sm p-6">
-            <h3 class="font-semibold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
-                <Icon icon="mdi:chart-line" class="w-5 h-5 text-gray-500" />
-                Network Traffic
+            <h3 class="font-semibold text-gray-900 dark:text-white mb-6 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <Icon icon="mdi:chart-line" class="w-5 h-5 text-gray-500" />
+                    Network Traffic
+                </div>
+                {#if currentRates}
+                    <div class="flex items-center gap-4 text-xs font-mono">
+                        <div class="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                            <Icon icon="mdi:arrow-down" class="w-3 h-3" />
+                            <span>{formatBytes(currentRates.rx)}/s</span>
+                        </div>
+                        <div class="flex items-center gap-1 text-purple-600 dark:text-purple-400">
+                            <Icon icon="mdi:arrow-up" class="w-3 h-3" />
+                            <span>{formatBytes(currentRates.tx)}/s</span>
+                        </div>
+                    </div>
+                {/if}
             </h3>
             
             {#if trafficLoading}

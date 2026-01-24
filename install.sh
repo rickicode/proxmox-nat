@@ -149,7 +149,22 @@ main() {
         fi
     fi
     
+    # Extract credentials from config
+    USERNAME="admin"
+    PASSWORD="netnat123"
+    
+    if [[ -f "$CONFIG_DIR/config.yml" ]]; then
+        DETECTED_USER=$(grep "username" "$CONFIG_DIR/config.yml" | sed -E 's/.*: "([^"]+)".*/\1/' | head -n 1)
+        DETECTED_PASS=$(grep "password" "$CONFIG_DIR/config.yml" | sed -E 's/.*: "([^"]+)".*/\1/' | head -n 1)
+        
+        if [[ -n "$DETECTED_USER" ]]; then USERNAME="$DETECTED_USER"; fi
+        if [[ -n "$DETECTED_PASS" ]]; then PASSWORD="$DETECTED_PASS"; fi
+    fi
+    
     echo "Web Interface: http://localhost:$PORT"
+    echo "Default Login: $USERNAME / $PASSWORD"
+    echo ""
+    echo "⚠️  IMPORTANT: Please change the default password in $CONFIG_DIR/config.yml"
 }
 
 main "$@"

@@ -38,14 +38,19 @@ func (a *API) Handler() http.Handler {
 	// Serve Vite static assets (assets directory)
 	e.GET("/assets/*", echo.WrapHandler(http.StripPrefix("/assets/", http.FileServer(http.FS(web.GetSubFS("assets"))))))
 
-	// Serve favicon
-	e.GET("/favicon.png", func(c echo.Context) error {
-		data, err := fs.ReadFile(rawStaticFS, "favicon.png")
-		if err != nil {
-			return c.String(http.StatusNotFound, "Favicon not found")
-		}
-		return c.Blob(http.StatusOK, "image/png", data)
-	})
+	// Serve static files (favicon, logo) - generic handler
+	staticFiles := []string{"favicon.svg", "logo.svg"}
+	for _, filename := range staticFiles {
+		filename := filename // capture for closure
+		e.GET("/"+filename, func(c echo.Context) error {
+			data, err := fs.ReadFile(rawStaticFS, filename)
+			if err != nil {
+				return c.String(http.StatusNotFound, "File not found: "+filename)
+			}
+			contentType := "image/svg+xml"
+			return c.Blob(http.StatusOK, contentType, data)
+		})
+	}
 
 	// Root handler - serve index.html (NO AUTH)
 	e.GET("/", func(c echo.Context) error {
@@ -85,7 +90,9 @@ func (a *API) Handler() http.Handler {
 
 	// Configuration management
 	api.GET("/config", a.getConfig)
+	api.GET("/config", a.getConfig)
 	api.PUT("/config", a.updateConfig, a.csrfMiddleware())
+	api.POST("/config/reset", a.resetConfig, a.csrfMiddleware())
 
 	// Backup operations
 	api.GET("/backup/list", a.listBackups)
@@ -112,12 +119,20 @@ func (a *API) Handler() http.Handler {
 
 	// SPA fallback - serve index.html for all other routes
 	e.RouteNotFound("/*", func(c echo.Context) error {
+		path := c.Request().URL.Path
+		
 		// Don't serve SPA for API routes
-		if strings.HasPrefix(c.Request().URL.Path, "/api") {
+		if strings.HasPrefix(path, "/api") {
 			return c.JSON(http.StatusNotFound, models.APIResponse{
 				Success: false,
 				Error:   "API endpoint not found",
 			})
+		}
+		
+		// Don't serve SPA for static files
+		if strings.HasSuffix(path, ".svg") || strings.HasSuffix(path, ".ico") || 
+		   strings.HasSuffix(path, ".png") || strings.HasSuffix(path, ".jpg") {
+			return c.String(http.StatusNotFound, "File not found")
 		}
 
 		// Serve index.html for SPA routing
@@ -205,6 +220,13 @@ func (a *API) createRule(c echo.Context) error {
 		})
 	}
 
+	// If TargetVMID is set but InternalIP is empty, try to resolve it
+	if rule.TargetVMID != "" && rule.InternalIP == "" {
+		if vm, err := a.discovery.GetVMByID(rule.TargetVMID); err == nil {
+			rule.InternalIP = vm.IP
+		}
+	}
+
 	if err := a.validateRule(rule); err != nil {
 		return c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
@@ -248,6 +270,13 @@ func (a *API) updateRule(c echo.Context) error {
 			Success: false,
 			Error:   fmt.Sprintf("Invalid request: %v", err),
 		})
+	}
+
+	// If TargetVMID is set but InternalIP is empty, try to resolve it
+	if updatedRule.TargetVMID != "" && updatedRule.InternalIP == "" {
+		if vm, err := a.discovery.GetVMByID(updatedRule.TargetVMID); err == nil {
+			updatedRule.InternalIP = vm.IP
+		}
 	}
 
 	if err := a.validateRule(updatedRule); err != nil {
@@ -425,7 +454,16 @@ func (a *API) cleanupRules(c echo.Context) error {
 
 	rules, err := a.storage.GetEnabledRules()
 	if err == nil {
-		if err := a.network.ApplyRules(rules); err != nil {
+		// Define resolver
+		resolver := func(vmid string) (string, error) {
+			vm, err := a.discovery.GetVMByID(vmid)
+			if err != nil {
+				return "", err
+			}
+			return vm.IP, nil
+		}
+
+		if err := a.network.ApplyRules(rules, resolver); err != nil {
 			fmt.Printf("Warning: Failed to apply cleaned rules: %v\n", err)
 		}
 	}
@@ -542,6 +580,29 @@ func (a *API) updateConfig(c echo.Context) error {
 	})
 }
 
+func (a *API) resetConfig(c echo.Context) error {
+	configPath := config.GetConfigPath()
+
+	// Backup current config
+	if err := a.backupConfig(configPath); err != nil {
+		fmt.Printf("Warning: Failed to backup config before reset: %v\n", err)
+	}
+
+	// Generate default config
+	defaultConfig := config.DefaultConfig()
+	if err := config.SaveToFile(defaultConfig, configPath); err != nil {
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to reset configuration: %v", err),
+		})
+	}
+
+	return c.JSON(http.StatusOK, models.APIResponse{
+		Success: true,
+		Message: "Configuration reset to default successfully.",
+	})
+}
+
 func (a *API) backupConfig(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -620,7 +681,16 @@ func (a *API) restoreBackup(c echo.Context) error {
 	if !req.Preview {
 		message = "Backup restored successfully"
 		if rules, err := a.storage.GetEnabledRules(); err == nil {
-			if err := a.network.ApplyRules(rules); err != nil {
+			// Create resolver function for VM IP resolution
+			resolver := func(vmID string) (string, error) {
+				if a.discovery != nil {
+					if vm, err := a.discovery.GetVMByID(vmID); err == nil && vm != nil {
+						return vm.IP, nil
+					}
+				}
+				return "", fmt.Errorf("VM not found: %s", vmID)
+			}
+			if err := a.network.ApplyRules(rules, resolver); err != nil {
 				fmt.Printf("Warning: Failed to apply restored rules: %v\n", err)
 			}
 		}
@@ -827,7 +897,16 @@ func (a *API) cleanOrphanedRules(c echo.Context) error {
 
 	rules, err := a.storage.GetEnabledRules()
 	if err == nil {
-		if err := a.network.ApplyRules(rules); err != nil {
+		// Define resolver
+		resolver := func(vmid string) (string, error) {
+			vm, err := a.discovery.GetVMByID(vmid)
+			if err != nil {
+				return "", err
+			}
+			return vm.IP, nil
+		}
+
+		if err := a.network.ApplyRules(rules, resolver); err != nil {
 			fmt.Printf("Warning: Failed to apply rules after orphan cleanup: %v\n", err)
 		}
 	}
@@ -840,25 +919,23 @@ func (a *API) cleanOrphanedRules(c echo.Context) error {
 }
 
 func (a *API) getNetworkTraffic(c echo.Context) error {
-	traffic, err := a.network.GetNetworkTraffic()
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, models.APIResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to get network traffic: %v", err),
-		})
+	history := a.network.GetTrafficData()
+	
+	// Get current rates for the summary
+	var rxRate, txRate float64
+	if len(history) > 0 {
+		last := history[len(history)-1]
+		rxRate = last.RxRate
+		txRate = last.TxRate
 	}
-
-	total, active, err := a.storage.GetRulesCount()
-	if err == nil {
-		traffic.ActiveRules = active
-		traffic.TotalRules = total
-	}
-
-	traffic.LastUpdated = time.Now()
 
 	return c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
-		Data:    traffic,
+		Data: map[string]interface{}{
+			"history":         history,
+			"current_rx_rate": rxRate,
+			"current_tx_rate": txRate,
+		},
 	})
 }
 

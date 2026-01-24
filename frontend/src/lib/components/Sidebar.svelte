@@ -40,8 +40,8 @@
     `}
 >
     <div class="flex items-center justify-between h-16 px-6 border-b border-white/10">
-        <div class="flex items-center gap-2 font-bold text-xl text-primary-600 dark:text-primary-500">
-            <Icon icon="mdi:network-outline" class="w-8 h-8" />
+        <div class="flex items-center gap-3 font-bold text-xl text-gray-900 dark:text-white">
+            <img src="/logo.svg" alt="NetNAT" class="w-10 h-10" />
             <span class="tracking-tight">NetNAT</span>
         </div>
         <button 

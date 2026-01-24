@@ -6,8 +6,10 @@
     import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
     import EmptyState from '$lib/components/EmptyState.svelte';
     import SkeletonLoader from '$lib/components/SkeletonLoader.svelte';
-    
+    import { appState } from '$lib/state.svelte.js';
+
     let rules = $state([]);
+    let discoveredVMs = $state([]);
     let loading = $state(true);
     let error = $state(null);
     let searchQuery = $state('');
@@ -16,6 +18,7 @@
     let showModal = $state(false);
     let editingRule = $state(null);
     let confirmDialog = $state({ open: false, title: '', message: '', onConfirm: () => {} });
+    let targetType = $state('ip'); // 'ip' or 'vm'
 
     let formData = $state({
         name: '',
@@ -23,6 +26,7 @@
         external_port: '',
         internal_ip: '',
         internal_port: '',
+        target_vm_id: '',
         enabled: true
     });
 
@@ -93,10 +97,30 @@
         }
     }
 
+    async function loadVMs() {
+        try {
+            const res = await api.get('/vms');
+            if (res.success) {
+                discoveredVMs = res.data || [];
+            }
+        } catch (e) {
+            console.error('Failed to load VMs:', e);
+        }
+    }
+
+    function setTargetType(type) {
+        targetType = type;
+        if (type === 'vm' && discoveredVMs.length === 0) {
+            loadVMs();
+        }
+    }
+
     function openModal(rule = null) {
         if (rule) {
             editingRule = rule;
             formData = { ...rule };
+            targetType = rule.target_vm_id ? 'vm' : 'ip';
+            if (targetType === 'vm') loadVMs();
         } else {
             editingRule = null;
             formData = {
@@ -105,8 +129,10 @@
                 external_port: '',
                 internal_ip: '',
                 internal_port: '',
+                target_vm_id: '',
                 enabled: true
             };
+            targetType = 'ip';
         }
         showModal = true;
     }
@@ -116,7 +142,27 @@
         editingRule = null;
     }
 
-    onMount(loadRules);
+    onMount(() => {
+        loadRules();
+        
+        // Check for prefilled rule from discovery
+        if (appState.prefillRule) {
+            const prefill = appState.prefillRule;
+            formData = {
+                name: prefill.name,
+                protocol: 'tcp',
+                external_port: '',
+                internal_ip: prefill.internal_ip,
+                internal_port: '',
+                target_vm_id: prefill.target_vm_id,
+                enabled: true
+            };
+            targetType = 'vm';
+            loadVMs(); // Load VMs to show correct name in dropdown
+            showModal = true;
+            appState.prefillRule = null; // Clear state
+        }
+    });
 
     let filteredRules = $derived(
         rules.filter(r => {
@@ -279,10 +325,40 @@
                     </div>
                 </div>
 
+                <!-- Target Type Selection -->
+                <div class="space-y-3">
+                    <span class="block text-sm font-medium text-gray-700 dark:text-gray-300">Target Type</span>
+                    <div class="flex p-1 bg-gray-100 dark:bg-dark-bg rounded-lg">
+                        <button 
+                            class={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${targetType === 'ip' ? 'bg-white dark:bg-dark-surface shadow text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                            onclick={() => setTargetType('ip')}
+                        >
+                            Static IP
+                        </button>
+                        <button 
+                            class={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${targetType === 'vm' ? 'bg-white dark:bg-dark-surface shadow text-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                            onclick={() => setTargetType('vm')}
+                        >
+                            Dynamic VM
+                        </button>
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label for="rule-int-ip" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Internal IP</label>
-                        <input id="rule-int-ip" type="text" bind:value={formData.internal_ip} class="w-full px-3 py-2 bg-gray-50 dark:bg-dark-bg border border-gray-300 dark:border-dark-border rounded-lg focus:ring-2 focus:ring-primary-500 dark:text-white" placeholder="10.0.0.x" />
+                    <div class="col-span-1">
+                        {#if targetType === 'ip'}
+                            <label for="rule-int-ip" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Internal IP</label>
+                            <input id="rule-int-ip" type="text" bind:value={formData.internal_ip} class="w-full px-3 py-2 bg-gray-50 dark:bg-dark-bg border border-gray-300 dark:border-dark-border rounded-lg focus:ring-2 focus:ring-primary-500 dark:text-white" placeholder="10.0.0.x" />
+                        {:else}
+                            <label for="rule-vm-id" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Target VM</label>
+                            <select id="rule-vm-id" bind:value={formData.target_vm_id} class="w-full px-3 py-2 bg-gray-50 dark:bg-dark-bg border border-gray-300 dark:border-dark-border rounded-lg focus:ring-2 focus:ring-primary-500 dark:text-white">
+                                <option value="">Select a VM...</option>
+                                {#each discoveredVMs as vm}
+                                    <option value={vm.id}>{vm.id} - {vm.name} ({vm.ip || 'No IP'})</option>
+                                {/each}
+                            </select>
+                            <p class="text-xs text-gray-500 mt-1">Rule will auto-update if VM IP changes</p>
+                        {/if}
                     </div>
                     <div>
                         <label for="rule-int-port" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Internal Port</label>

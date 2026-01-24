@@ -40,6 +40,19 @@ func Load() (*models.Config, error) {
 	return cfg, nil
 }
 
+// LoadOrGenerate loads config from path, or generates a default one if missing
+func LoadOrGenerate(path string) (*models.Config, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		cfg := DefaultConfig()
+		if err := SaveToFile(cfg, path); err != nil {
+			return nil, fmt.Errorf("failed to generate default config at %s: %w", path, err)
+		}
+		fmt.Printf("Generated default configuration at %s\n", path)
+		return cfg, nil
+	}
+	return LoadFromFile(path)
+}
+
 // LoadFromFile loads configuration from specified file
 func LoadFromFile(path string) (*models.Config, error) {
 	data, err := os.ReadFile(path)
