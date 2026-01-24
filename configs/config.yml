@@ -17,7 +17,7 @@ network:
   public_interface: "auto"
   
   # Internal bridge where VMs/CTs are connected
-  internal_bridge: "vmbr1"
+  internal_bridge: "vmbr0"
   
   # Port range configuration for port forwarding
   port_range:

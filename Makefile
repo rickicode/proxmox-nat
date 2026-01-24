@@ -5,9 +5,9 @@ APP_NAME := netnat
 VERSION ?= 1.0.0
 BUILD_DIR := build
 INSTALL_DIR := /opt/netnat
-CONFIG_DIR := /etc/netnat
-DATA_DIR := /var/lib/netnat
-LOG_DIR := /var/log/netnat
+CONFIG_DIR := $(INSTALL_DIR)
+DATA_DIR := $(INSTALL_DIR)/data
+LOG_DIR := $(INSTALL_DIR)/logs
 SERVICE_DIR := /etc/systemd/system
 
 # Build everything (always rebuild)
@@ -17,7 +17,7 @@ build:
 	@echo "Building Backend for Linux..."
 	go mod tidy
 	mkdir -p $(BUILD_DIR)
-	set GOOS=linux&& set GOARCH=amd64&& set CGO_ENABLED=0&& go build -ldflags="-X main.version=$(VERSION)" -o $(BUILD_DIR)/$(APP_NAME) cmd/netnat/main.go
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-X main.Version=$(VERSION)" -o $(BUILD_DIR)/$(APP_NAME) cmd/netnat/main.go
 	@echo "✓ Build complete: $(BUILD_DIR)/$(APP_NAME) (Linux AMD64)"
 
 # Install to system (always rebuild first)

@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	DefaultConfigPath  = "/etc/netnat/config.yml"
-	FallbackConfigPath = "./configs/config.yml"
+	DefaultConfigPath  = "/opt/netnat/config.yml"
+	FallbackConfigPath = "./config.yml"
 )
 
 // Load loads configuration from default locations
@@ -99,9 +99,9 @@ func DefaultConfig() *models.Config {
 			},
 		},
 		Storage: models.StorageConfig{
-			RulesFile:       "/etc/netnat/rules.json",
+			RulesFile:       "/opt/netnat/data/rules.json",
 			BackupEnabled:   true,
-			BackupDir:       "/etc/netnat/backups",
+			BackupDir:       "/opt/netnat/data/backups",
 			BackupRetention: 30,
 			AutoBackup:      true,
 			DailyBackup:     true,

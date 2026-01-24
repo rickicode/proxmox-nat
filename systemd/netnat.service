@@ -4,14 +4,14 @@ Documentation=https://github.com/rickicode/proxmox-nat
 After=network-online.target
 Wants=network-online.target
 ConditionPathExists=/opt/netnat/netnat
-ConditionPathExists=/etc/netnat/config.yml
+ConditionPathExists=/opt/netnat/config.yml
 
 [Service]
 Type=simple
 User=root
 Group=root
 WorkingDirectory=/opt/netnat
-ExecStart=/opt/netnat/netnat -config /etc/netnat/config.yml
+ExecStart=/opt/netnat/netnat -config ./config.yml
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5s
@@ -23,7 +23,7 @@ NoNewPrivileges=false
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/etc/netnat /var/lib/netnat /var/log/netnat
+ReadWritePaths=/opt/netnat
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
 
 # Environment

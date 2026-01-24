@@ -50,7 +50,7 @@ func showUsage() {
 
 func main() {
 	var (
-		configPath  = flag.String("config", "./configs/config.yml", "Configuration file path")
+		configPath  = flag.String("config", "./config.yml", "Configuration file path")
 		showVersion = flag.Bool("version", false, "Show version information")
 		showHelp    = flag.Bool("help", false, "Show help message")
 	)
