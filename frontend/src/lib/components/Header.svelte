@@ -7,13 +7,13 @@
         '/': 'Dashboard',
         '/rules': 'NAT Rules',
         '/discovery': 'VM Discovery',
-        '/settings': 'Settings'
+        '/settings': 'System Settings'
     };
 
     let currentTitle = $derived(pageTitles[router.path] || 'Dashboard');
 </script>
 
-<header class="sticky top-0 z-10 flex items-center justify-between h-16 px-4 glass my-4 mx-4 md:mx-6 rounded-2xl">
+<header class="sticky top-0 z-10 flex items-center justify-between h-16 min-h-[4rem] px-4 glass my-4 mx-4 md:mx-6 rounded-2xl shrink-0">
     <div class="flex items-center gap-4">
         <button 
             class="p-2 -ml-2 text-gray-600 rounded-lg lg:hidden hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-dark-bg"
@@ -37,10 +37,7 @@
             {/if}
         </button>
 
-        <button class="p-2 text-gray-500 rounded-lg hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-dark-bg transition-colors relative">
-            <Icon icon="mdi:bell-outline" class="w-5 h-5" />
-            <span class="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full"></span>
-        </button>
+
 
         <div class="h-8 w-px bg-gray-200 dark:bg-dark-border mx-1"></div>
 

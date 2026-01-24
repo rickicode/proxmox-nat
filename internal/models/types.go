@@ -90,6 +90,9 @@ type SystemStatus struct {
 	RulesCount       int    `json:"rules_count"`
 	ActiveRules      int    `json:"active_rules"`
 	Uptime           string `json:"uptime"`
+	CPULoad          string `json:"cpu_load"`
+	MemoryUsage      string `json:"memory_usage"`
+	MemoryTotal      string `json:"memory_total"`
 }
 
 // BackupMetadata represents backup file metadata

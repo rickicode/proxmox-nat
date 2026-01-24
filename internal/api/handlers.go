@@ -10,10 +10,12 @@ import (
 	"time"
 
 	web "proxmox-nat/frontend"
+	"proxmox-nat/internal/config"
 	"proxmox-nat/internal/models"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"gopkg.in/yaml.v3"
 )
 
 // Handler returns the HTTP handler using Echo framework
@@ -81,11 +83,9 @@ func (a *API) Handler() http.Handler {
 	api.GET("/vms/:id", a.getVM)
 	api.POST("/vms/refresh", a.refreshVMs)
 
-	// Network operations
-	api.POST("/nat/enable", a.enableNAT, a.csrfMiddleware())
-	api.POST("/nat/disable", a.disableNAT, a.csrfMiddleware())
-	api.POST("/forwarding/enable", a.enableForwarding, a.csrfMiddleware())
-	api.POST("/forwarding/disable", a.disableForwarding, a.csrfMiddleware())
+	// Configuration management
+	api.GET("/config", a.getConfig)
+	api.PUT("/config", a.updateConfig, a.csrfMiddleware())
 
 	// Backup operations
 	api.GET("/backup/list", a.listBackups)
@@ -157,7 +157,6 @@ func (a *API) getSystemStatus(c echo.Context) error {
 		status.ActiveRules = active
 	}
 
-	status.Uptime = "N/A"
 
 	return c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
@@ -480,44 +479,76 @@ func (a *API) refreshVMs(c echo.Context) error {
 	})
 }
 
-func (a *API) enableNAT(c echo.Context) error {
-	if err := a.network.EnableNAT(); err != nil {
+func (a *API) getConfig(c echo.Context) error {
+	configPath := config.GetConfigPath()
+	data, err := os.ReadFile(configPath)
+	if err != nil {
 		return c.JSON(http.StatusInternalServerError, models.APIResponse{
 			Success: false,
-			Error:   fmt.Sprintf("Failed to enable NAT: %v", err),
+			Error:   fmt.Sprintf("Failed to read config file: %v", err),
 		})
 	}
-	return c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "NAT enabled successfully"})
+
+	return c.JSON(http.StatusOK, models.APIResponse{
+		Success: true,
+		Data:    string(data),
+	})
 }
 
-func (a *API) disableNAT(c echo.Context) error {
-	if err := a.network.DisableNAT(); err != nil {
-		return c.JSON(http.StatusInternalServerError, models.APIResponse{
+func (a *API) updateConfig(c echo.Context) error {
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
-			Error:   fmt.Sprintf("Failed to disable NAT: %v", err),
+			Error:   fmt.Sprintf("Invalid request: %v", err),
 		})
 	}
-	return c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "NAT disabled successfully"})
+
+	// Validate the new config content
+	var newConfig models.Config
+	if err := yaml.Unmarshal([]byte(req.Content), &newConfig); err != nil {
+		return c.JSON(http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Invalid YAML format: %v", err),
+		})
+	}
+
+	if err := config.Validate(&newConfig); err != nil {
+		return c.JSON(http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Invalid configuration: %v", err),
+		})
+	}
+
+	// Create backup of current config
+	configPath := config.GetConfigPath()
+	if err := a.backupConfig(configPath); err != nil {
+		fmt.Printf("Warning: Failed to backup config before update: %v\n", err)
+	}
+
+	// Save new config
+	if err := os.WriteFile(configPath, []byte(req.Content), 0644); err != nil {
+		return c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to save config file: %v", err),
+		})
+	}
+
+	return c.JSON(http.StatusOK, models.APIResponse{
+		Success: true,
+		Message: "Configuration saved successfully. Some changes may require a server restart.",
+	})
 }
 
-func (a *API) enableForwarding(c echo.Context) error {
-	if err := a.network.EnableIPForwarding(); err != nil {
-		return c.JSON(http.StatusInternalServerError, models.APIResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to enable IP forwarding: %v", err),
-		})
+func (a *API) backupConfig(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
 	}
-	return c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "IP forwarding enabled successfully"})
-}
-
-func (a *API) disableForwarding(c echo.Context) error {
-	if err := a.network.DisableIPForwarding(); err != nil {
-		return c.JSON(http.StatusInternalServerError, models.APIResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to disable IP forwarding: %v", err),
-		})
-	}
-	return c.JSON(http.StatusOK, models.APIResponse{Success: true, Message: "IP forwarding disabled successfully"})
+	backupPath := fmt.Sprintf("%s.bak.%d", path, time.Now().Unix())
+	return os.WriteFile(backupPath, data, 0644)
 }
 
 func (a *API) listBackups(c echo.Context) error {

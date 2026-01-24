@@ -491,11 +491,69 @@ func (m *Manager) GetSystemStatus() (*models.SystemStatus, error) {
 	ipForward, _ := m.getIPForwardingStatus()
 	natEnabled, _ := m.getNATStatus()
 
+	// Get Real Uptime
+	uptime := "N/A"
+	if data, err := os.ReadFile("/proc/uptime"); err == nil {
+		parts := strings.Fields(string(data))
+		if len(parts) > 0 {
+			var upSeconds float64
+			fmt.Sscanf(parts[0], "%f", &upSeconds)
+			duration := time.Duration(upSeconds) * time.Second
+			days := int(duration.Hours()) / 24
+			hours := int(duration.Hours()) % 24
+			minutes := int(duration.Minutes()) % 60
+			if days > 0 {
+				uptime = fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
+			} else {
+				uptime = fmt.Sprintf("%dh %dm", hours, minutes)
+			}
+		}
+	}
+
+	// Get CPU Load
+	cpuLoad := "N/A"
+	if data, err := os.ReadFile("/proc/loadavg"); err == nil {
+		fields := strings.Fields(string(data))
+		if len(fields) >= 3 {
+			cpuLoad = fmt.Sprintf("%s / %s / %s", fields[0], fields[1], fields[2])
+		}
+	}
+
+	// Get Memory Usage
+	memUsage := "N/A"
+	memTotalStr := "N/A"
+	if data, err := os.ReadFile("/proc/meminfo"); err == nil {
+		lines := strings.Split(string(data), "\n")
+		var total, available int64
+		for _, line := range lines {
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			if fields[0] == "MemTotal:" {
+				fmt.Sscanf(fields[1], "%d", &total)
+			} else if fields[0] == "MemAvailable:" {
+				fmt.Sscanf(fields[1], "%d", &available)
+			}
+		}
+
+		if total > 0 {
+			used := total - available
+			percent := float64(used) / float64(total) * 100
+			memUsage = fmt.Sprintf("%.1f%%", percent)
+			memTotalStr = m.formatBytes(total * 1024)
+		}
+	}
+
 	status := &models.SystemStatus{
 		NATEnabled:       natEnabled,
 		IPForwardEnabled: ipForward,
 		PublicInterface:  m.publicInterface,
 		InternalBridge:   m.config.Network.InternalBridge,
+		Uptime:           uptime,
+		CPULoad:          cpuLoad,
+		MemoryUsage:      memUsage,
+		MemoryTotal:      memTotalStr,
 	}
 
 	return status, nil

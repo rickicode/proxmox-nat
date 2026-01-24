@@ -53,7 +53,7 @@ func LoadFromFile(path string) (*models.Config, error) {
 	}
 
 	// Validate configuration
-	if err := validateConfig(&cfg); err != nil {
+	if err := Validate(&cfg); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
@@ -113,8 +113,8 @@ func DefaultConfig() *models.Config {
 	}
 }
 
-// validateConfig validates the configuration
-func validateConfig(cfg *models.Config) error {
+// Validate validates the configuration
+func Validate(cfg *models.Config) error {
 	if cfg.Server.ListenAddr == "" {
 		return fmt.Errorf("server listen address cannot be empty")
 	}
