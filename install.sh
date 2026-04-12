@@ -11,6 +11,7 @@ INSTALL_DIR="/opt/netnat"
 CONFIG_DIR="$INSTALL_DIR"
 DATA_DIR="$INSTALL_DIR/data"
 LOG_DIR="$INSTALL_DIR/logs"
+RULES_DIR="/etc/netnat"
 SERVICE_NAME="netnat"
 GITHUB_RAW="https://raw.githubusercontent.com/$REPO/main"
 
@@ -65,6 +66,7 @@ create_directories() {
     mkdir -p "$INSTALL_DIR"
     mkdir -p "$DATA_DIR/backups"
     mkdir -p "$LOG_DIR"
+    mkdir -p "$RULES_DIR"
 }
 
 get_latest_version() {
